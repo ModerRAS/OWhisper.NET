@@ -5,32 +5,25 @@ using NUnit.Framework;
 using OWhisper.NET;
 using Whisper.net.Ggml;
 
-namespace IntegrationTests
-{
+namespace IntegrationTests {
     [TestFixture]
-    public class WhisperManagerDownloadTests : ApplicationTestBase, IDisposable
-    {
+    public class WhisperManagerDownloadTests : ApplicationTestBase, IDisposable {
         private readonly string _testModelDir;
         private readonly WhisperManager _manager;
 
-        public WhisperManagerDownloadTests()
-        {
+        public WhisperManagerDownloadTests() {
             // 创建专用测试目录
             _testModelDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             _manager = new WhisperManager();
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             // 测试完成后清理临时目录
-            try
-            {
-                if (Directory.Exists(_testModelDir))
-                {
+            try {
+                if (Directory.Exists(_testModelDir)) {
                     Directory.Delete(_testModelDir, true);
                 }
-            }
-            catch { /* 忽略清理错误 */ }
+            } catch { /* 忽略清理错误 */ }
         }
 
         // [Test]
@@ -38,7 +31,7 @@ namespace IntegrationTests
         // {
         //     // 准备
         //     var modelType = GgmlType.LargeV3Turbo;
-            
+
         //     // 执行
         //     await _manager.DownloadModelAsync(modelType, _testModelDir);
 
@@ -55,7 +48,7 @@ namespace IntegrationTests
         // {
         //     // 准备 - 预先创建目录
         //     Directory.CreateDirectory(_testModelDir);
-            
+
         //     // 执行 & 验证 - 不应抛出异常
         //     Assert.DoesNotThrowAsync(() => 
         //         _manager.DownloadModelAsync(GgmlType.LargeV3Turbo, _testModelDir));

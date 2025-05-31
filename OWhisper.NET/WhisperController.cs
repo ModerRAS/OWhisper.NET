@@ -10,19 +10,15 @@ using HttpMultipartParser;
 using System.IO;
 using System.Linq;
 
-namespace OWhisper.NET
-{
-    public class WhisperController : WebApiController
-    {
+namespace OWhisper.NET {
+    public class WhisperController : WebApiController {
         private readonly WhisperService _whisperService = WhisperService.Instance;
 
-        public WhisperController()
-        {
+        public WhisperController() {
         }
 
         [Route(HttpVerbs.Get, "/")]
-        public async Task<ApiResponse<object>> GetApiInfo()
-        {
+        public async Task<ApiResponse<object>> GetApiInfo() {
             return ApiResponse<object>.Success(new {
                 endpoints = new[] {
                     "/api/status",
@@ -51,23 +47,18 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Get, "/api/model/status")]
-        public async Task<ApiResponse<object>> GetModelStatus()
-        {
-            try
-            {
+        public async Task<ApiResponse<object>> GetModelStatus() {
+            try {
                 var whisperManager = new WhisperManager();
                 var (exists, valid, size, path) = whisperManager.CheckModelStatus();
-                
-                return ApiResponse<object>.Success(new
-                {
+
+                return ApiResponse<object>.Success(new {
                     exists,
                     valid,
                     size,
                     path
                 });
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 HttpContext.Response.StatusCode = 500;
                 Console.WriteLine($"获取模型状态失败: {ex}");
                 return ApiResponse<object>.CreateError("MODEL_STATUS_ERROR", "获取模型状态失败");
@@ -87,23 +78,16 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Get, "/api/status")]
-        public async Task<ApiResponse<object>> GetStatus()
-        {
-            try
-            {
+        public async Task<ApiResponse<object>> GetStatus() {
+            try {
                 var status = _whisperService.GetStatus();
-                return ApiResponse<object>.Success(new
-                {
+                return ApiResponse<object>.Success(new {
                     serviceStatus = status.ToString()
                 });
-            }
-            catch (AudioProcessingException ex)
-            {
+            } catch (AudioProcessingException ex) {
                 HttpContext.Response.StatusCode = 400;
                 return ApiResponse<object>.CreateError(ex.ErrorCode, ex.Message);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 HttpContext.Response.StatusCode = 500;
                 Console.WriteLine($"获取服务状态失败: {ex}");
                 return ApiResponse<object>.CreateError("INTERNAL_ERROR", "内部服务器错误");
@@ -125,20 +109,14 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Post, "/api/start")]
-        public async Task<ApiResponse<object>> StartService()
-        {
-            try
-            {
+        public async Task<ApiResponse<object>> StartService() {
+            try {
                 _whisperService.Start();
                 return ApiResponse<object>.Success(null);
-            }
-            catch (AudioProcessingException ex)
-            {
+            } catch (AudioProcessingException ex) {
                 HttpContext.Response.StatusCode = 400;
                 return ApiResponse<object>.CreateError(ex.ErrorCode, ex.Message);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 HttpContext.Response.StatusCode = 500;
                 Console.WriteLine($"启动服务失败: {ex}");
                 return ApiResponse<object>.CreateError("INTERNAL_ERROR", "内部服务器错误");
@@ -160,20 +138,14 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Post, "/api/stop")]
-        public async Task<ApiResponse<object>> StopService()
-        {
-            try
-            {
+        public async Task<ApiResponse<object>> StopService() {
+            try {
                 _whisperService.Stop();
                 return ApiResponse<object>.Success(null);
-            }
-            catch (AudioProcessingException ex)
-            {
+            } catch (AudioProcessingException ex) {
                 HttpContext.Response.StatusCode = 400;
                 return ApiResponse<object>.CreateError(ex.ErrorCode, ex.Message);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 HttpContext.Response.StatusCode = 500;
                 Console.WriteLine($"停止服务失败: {ex}");
                 return ApiResponse<object>.CreateError("INTERNAL_ERROR", "内部服务器错误");
@@ -199,13 +171,10 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Post, "/api/transcribe")]
-        public async Task<ApiResponse<TranscriptionResult>> Transcribe()
-        {
-            try
-            {
+        public async Task<ApiResponse<TranscriptionResult>> Transcribe() {
+            try {
                 // 解析multipart/form-data请求
-                if (HttpContext.Request.InputStream == null)
-                {
+                if (HttpContext.Request.InputStream == null) {
                     Log.Error("请求输入流为空");
                     throw new AudioProcessingException("INVALID_REQUEST", "无效的请求格式");
                 }
@@ -213,53 +182,45 @@ namespace OWhisper.NET
                 var parser = await MultipartFormDataParser.ParseAsync(HttpContext.Request.InputStream);
                 var filePart = parser.Files.FirstOrDefault();
 
-                if (filePart == null)
-                {
+                if (filePart == null) {
                     Log.Error("请求中未包含文件");
                     throw new AudioProcessingException("NO_FILE_UPLOADED", "请上传音频文件");
                 }
 
                 // 验证文件格式
                 var fileName = filePart.FileName?.ToLower() ?? string.Empty;
-                if (!fileName.EndsWith(".mp3") && !fileName.EndsWith(".wav"))
-                {
+                if (!fileName.EndsWith(".mp3") && !fileName.EndsWith(".wav")) {
                     Log.Error("不支持的文件格式: {FileName}", fileName);
                     throw new AudioProcessingException("UNSUPPORTED_FILE_FORMAT", "仅支持.mp3和.wav格式");
                 }
 
                 // 读取文件数据
                 byte[] audioData;
-                using (var memoryStream = new MemoryStream())
-                {
+                using (var memoryStream = new MemoryStream()) {
                     await filePart.Data.CopyToAsync(memoryStream);
                     audioData = memoryStream.ToArray();
                 }
 
                 // 验证音频数据
-                if (audioData.Length == 0)
-                {
+                if (audioData.Length == 0) {
                     Log.Error("无效的音频数据: 零长度");
                     throw new AudioProcessingException("INVALID_AUDIO_DATA", "音频数据不能为空");
                 }
 
                 Log.Information("开始处理音频文件: {FileName}, 长度: {Length}字节", fileName, audioData.Length);
-                
+
                 // 处理音频数据(采样率转换等)
                 audioData = AudioProcessor.ProcessAudio(audioData, fileName);
-                
+
                 var result = await _whisperService.Transcribe(audioData);
                 Log.Information("音频转写完成");
-                
+
                 return ApiResponse<TranscriptionResult>.Success(result);
-            }
-            catch (AudioProcessingException ex)
-            {
+            } catch (AudioProcessingException ex) {
                 HttpContext.Response.StatusCode = 400;
                 Log.Error(ex, "音频处理错误: {ErrorCode} - {Message}", ex.ErrorCode, ex.Message);
                 return ApiResponse<TranscriptionResult>.CreateError(ex.ErrorCode, ex.Message);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 HttpContext.Response.StatusCode = 500;
                 Log.Error(ex, "转写失败");
                 return ApiResponse<TranscriptionResult>.CreateError("INTERNAL_ERROR", "内部服务器错误");
