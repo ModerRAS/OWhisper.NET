@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
@@ -61,8 +62,8 @@ namespace IntegrationTests
             form.Add(fileContent, "file", "invalid_audio.wav");
             
             var response = await Client.PostAsync("/api/transcribe", form);
-            Assert.IsTrue(response.IsSuccessStatusCode);
-            
+            Assert.AreEqual(HttpStatusCode.InternalServerError, response.StatusCode);
+
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
             Assert.AreEqual("error", result?.Status);
             Assert.IsNotNull(result?.Error);
@@ -78,7 +79,7 @@ namespace IntegrationTests
             form.Add(fileContent, "file", "empty_audio.wav");
             
             var response = await Client.PostAsync("/api/transcribe", form);
-            Assert.IsTrue(response.IsSuccessStatusCode);
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
             
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
             Assert.AreEqual("error", result?.Status);
@@ -98,8 +99,8 @@ namespace IntegrationTests
             form.Add(fileContent, "file", "large_audio.wav");
             
             var response = await Client.PostAsync("/api/transcribe", form);
-            Assert.IsTrue(response.IsSuccessStatusCode);
-            
+            Assert.AreEqual(HttpStatusCode.InternalServerError, response.StatusCode);
+
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
             Assert.AreEqual("error", result?.Status);
             Assert.IsNotNull(result?.Error);
@@ -116,8 +117,8 @@ namespace IntegrationTests
             form.Add(fileContent, "file", "invalid_format.txt");
             
             var response = await Client.PostAsync("/api/transcribe", form);
-            Assert.IsTrue(response.IsSuccessStatusCode);
-            
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
             Assert.AreEqual("error", result?.Status);
             Assert.IsNotNull(result?.Error);

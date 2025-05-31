@@ -243,6 +243,10 @@ namespace OWhisper.NET
                 }
 
                 Log.Information("开始处理音频文件: {FileName}, 长度: {Length}字节", fileName, audioData.Length);
+                
+                // 处理音频数据(采样率转换等)
+                audioData = AudioProcessor.ProcessAudio(audioData, fileName);
+                
                 var result = await _whisperService.Transcribe(audioData);
                 Log.Information("音频转写完成");
                 

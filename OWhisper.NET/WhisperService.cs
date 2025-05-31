@@ -10,17 +10,14 @@ using Whisper.net;
 using Whisper.net.Ggml;
 using Serilog;
 
-namespace OWhisper.NET
-{
-    public sealed class WhisperService : IDisposable
-    {
+namespace OWhisper.NET {
+    public sealed class WhisperService : IDisposable {
         private static readonly Lazy<WhisperService> _instance =
             new Lazy<WhisperService>(() => new WhisperService());
-        
+
         public static WhisperService Instance => _instance.Value;
 
-        public enum ServiceStatus
-        {
+        public enum ServiceStatus {
             Stopped,
             Starting,
             Running,
@@ -32,32 +29,25 @@ namespace OWhisper.NET
 
         public event EventHandler<ServiceStatus> StatusChanged;
 
-        private WhisperService()
-        {
+        private WhisperService() {
         }
 
         public ServiceStatus GetStatus() => _status;
 
-        private bool IsValidMp3(byte[] audioData)
-        {
-            try
-            {
+        private bool IsValidMp3(byte[] audioData) {
+            try {
                 // MP3文件头检查: 0xFF 0xFB或0xFF 0xF3
                 return audioData != null &&
                        audioData.Length > 2 &&
-                      ((audioData[0] == 0xFF && audioData[1] == 0xFB) ||
-                       (audioData[0] == 0xFF && audioData[1] == 0xF3));
-            }
-            catch
-            {
+                      ( ( audioData[0] == 0xFF && audioData[1] == 0xFB ) ||
+                       ( audioData[0] == 0xFF && audioData[1] == 0xF3 ) );
+            } catch {
                 return false;
             }
         }
 
-        private bool IsValidWav(byte[] audioData)
-        {
-            try
-            {
+        private bool IsValidWav(byte[] audioData) {
+            try {
                 // WAV文件头检查: "RIFF"标记
                 return audioData != null &&
                        audioData.Length > 12 &&
@@ -69,24 +59,20 @@ namespace OWhisper.NET
                        audioData[9] == 'A' &&
                        audioData[10] == 'V' &&
                        audioData[11] == 'E';
-            }
-            catch
-            {
+            } catch {
                 return false;
             }
         }
 
-        public void Start()
-        {
-            lock (_lock)
-            {
+        public void Start() {
+            lock (_lock) {
                 if (_status != ServiceStatus.Stopped) return;
-                
+
                 Log.Information("服务状态变更: {OldStatus} -> {NewStatus}", _status, ServiceStatus.Starting);
                 _status = ServiceStatus.Starting;
                 StatusChanged?.Invoke(this, _status);
                 Log.Information("启动服务线程...");
-                
+
             }
         }
 
@@ -95,33 +81,27 @@ namespace OWhisper.NET
         /// </summary>
         /// <param name="audioData">音频数据</param>
         /// <returns>转写文本</returns>
-        public async Task<TranscriptionResult> Transcribe(byte[] audioData)
-        {
+        public async Task<TranscriptionResult> Transcribe(byte[] audioData) {
             // 前置音频验证
             Log.Information("验证音频数据格式...");
             bool isMp3 = IsValidMp3(audioData);
             bool isWav = IsValidWav(audioData);
             Log.Information("音频格式检测 - MP3: {IsMp3}, WAV: {IsWav}", isMp3, isWav);
-            
-            if (!isMp3 && !isWav)
-            {
+
+            if (!isMp3 && !isWav) {
                 Log.Error("不支持的音频格式");
                 throw new AudioProcessingException("INVALID_AUDIO_FORMAT", "不支持的音频格式");
             }
 
             var startTime = DateTime.UtcNow;
-            try
-            {
+            try {
                 using var whisperManager = new WhisperManager();
                 var text = await whisperManager.Transcribe(audioData);
-                return new TranscriptionResult
-                {
+                return new TranscriptionResult {
                     Text = text,
-                    ProcessingTime = (DateTime.UtcNow - startTime).TotalSeconds
+                    ProcessingTime = ( DateTime.UtcNow - startTime ).TotalSeconds
                 };
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Log.Error(ex, "转写过程中发生错误");
                 throw;
             }
@@ -129,22 +109,19 @@ namespace OWhisper.NET
 
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
-        
 
-        public void Stop()
-        {
-            lock (_lock)
-            {
-                if (_status != ServiceStatus.Running)
-                {
+
+        public void Stop() {
+            lock (_lock) {
+                if (_status != ServiceStatus.Running) {
                     Log.Information("服务状态为{Status}，无需停止", _status);
                     return;
                 }
-                
+
                 _status = ServiceStatus.Stopping;
                 StatusChanged?.Invoke(this, _status);
                 Log.Information("正在停止服务线程...");
-                
+
                 _cts.Cancel();
                 _status = ServiceStatus.Stopped;
                 StatusChanged?.Invoke(this, _status);
@@ -152,27 +129,22 @@ namespace OWhisper.NET
             }
         }
 
-        public void Dispose()
-        {
-            try
-            {
+        public void Dispose() {
+            try {
                 Stop();
-                
-                
+
+
                 _cts?.Dispose();
-            }
-            catch
-            {
+            } catch {
                 // 记录错误到日志系统
                 throw;
             }
-            
+
             GC.SuppressFinalize(this);
         }
     }
 
-    public class WhisperManager : IDisposable
-    {
+    public class WhisperManager : IDisposable {
         private WhisperProcessor _processor;
         private const string ModelName = "ggml-large-v3-turbo.bin";
         const GgmlType ggmlType = GgmlType.LargeV3Turbo;
@@ -180,26 +152,21 @@ namespace OWhisper.NET
         private readonly string _modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", ModelName);
         private readonly object _lock = new object();
 
-        public (bool exists, bool valid, long size, string path) CheckModelStatus()
-        {
-            try
-            {
+        public (bool exists, bool valid, long size, string path) CheckModelStatus() {
+            try {
                 var exists = File.Exists(_modelPath);
                 var valid = false;
                 long size = 0;
-                
-                if (exists)
-                {
+
+                if (exists) {
                     var fileInfo = new FileInfo(_modelPath);
                     size = fileInfo.Length;
                     // 简单验证模型文件大小(假设有效模型至少10MB)
                     valid = size > 10 * 1024 * 1024;
                 }
-                
+
                 return (exists, valid, size, _modelPath);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Log.Error(ex, "检查模型状态失败");
                 return (false, false, 0, _modelPath);
             }
@@ -217,31 +184,33 @@ namespace OWhisper.NET
 
             Log.Information("开始下载模型: {ModelName}...", ModelName);
             var downloadStartTime = DateTime.UtcNow;
-            
+
             try {
                 using var client = HttpClientHelper.CreateProxyHttpClient();
                 client.Timeout = TimeSpan.FromMinutes(10);
                 var downloader = new WhisperGgmlDownloader(client);
-                
+
                 using var modelStream = await downloader.GetGgmlModelAsync(modelType);
                 var tempFilePath = Path.Combine(targetModelsDir, $"{ModelName}.tmp");
-                
+
                 try {
-                    using var fileWriter = File.OpenWrite(tempFilePath);
-                    var buffer = new byte[8192];
-                    long totalBytes = 0;
-                    int bytesRead;
-                    
-                    while ((bytesRead = await modelStream.ReadAsync(buffer, 0, buffer.Length)) > 0) {
-                        await fileWriter.WriteAsync(buffer, 0, bytesRead);
-                        totalBytes += bytesRead;
-                        
-                        if (DateTime.UtcNow - downloadStartTime > TimeSpan.FromSeconds(5)) {
-                            Log.Information("已下载: {DownloadedMB}MB", totalBytes / (1024 * 1024));
-                            downloadStartTime = DateTime.UtcNow;
+                    using (var fileWriter = File.OpenWrite(tempFilePath)) {
+                        var buffer = new byte[8192];
+                        long totalBytes = 0;
+                        int bytesRead;
+
+                        while (( bytesRead = await modelStream.ReadAsync(buffer, 0, buffer.Length) ) > 0) {
+                            await fileWriter.WriteAsync(buffer, 0, bytesRead);
+                            totalBytes += bytesRead;
+
+                            if (DateTime.UtcNow - downloadStartTime > TimeSpan.FromSeconds(5)) {
+                                Log.Information("已下载: {DownloadedMB}MB", totalBytes / ( 1024 * 1024 ));
+                                downloadStartTime = DateTime.UtcNow;
+                            }
                         }
                     }
-                    
+
+
                     var finalPath = Path.Combine(targetModelsDir, ModelName);
                     if (File.Exists(finalPath)) {
                         File.Delete(finalPath);
@@ -267,16 +236,14 @@ namespace OWhisper.NET
             }
         }
 
-        private bool IsValidMp3(byte[] audioData)
-        {
+        private bool IsValidMp3(byte[] audioData) {
             // MP3文件头检查: 0xFF 0xFB或0xFF 0xF3
             return audioData.Length > 2 &&
-                  ((audioData[0] == 0xFF && audioData[1] == 0xFB) ||
-                   (audioData[0] == 0xFF && audioData[1] == 0xF3));
+                  ( ( audioData[0] == 0xFF && audioData[1] == 0xFB ) ||
+                   ( audioData[0] == 0xFF && audioData[1] == 0xF3 ) );
         }
 
-        private bool IsValidWav(byte[] audioData)
-        {
+        private bool IsValidWav(byte[] audioData) {
             // WAV文件头检查: "RIFF"标记
             return audioData.Length > 12 &&
                    audioData[0] == 'R' &&
@@ -289,32 +256,26 @@ namespace OWhisper.NET
                    audioData[11] == 'E';
         }
 
-        public async Task<string> Transcribe(byte[] audioData)
-        {
+        public async Task<string> Transcribe(byte[] audioData) {
             TimeSpan timeTaken;
             var startTime = DateTime.UtcNow;
-            
+
             // 确保模型目录存在
-            if (!Directory.Exists(_modelDir))
-            {
+            if (!Directory.Exists(_modelDir)) {
                 Directory.CreateDirectory(_modelDir);
             }
             Log.Information("检查模型文件: {ModelPath}", _modelPath);
             var modelStatus = CheckModelStatus();
             Log.Information("模型状态 - 存在: {Exists}, 有效: {Valid}, 大小: {Size}字节",
                 modelStatus.exists, modelStatus.valid, modelStatus.size);
-            
-            if (!modelStatus.exists || !modelStatus.valid)
-            {
-                try
-                {
+
+            if (!modelStatus.exists || !modelStatus.valid) {
+                try {
                     Log.Information("开始下载模型文件...");
                     await DownloadModelAsync(ggmlType, _modelDir);
                     timeTaken = DateTime.UtcNow - startTime;
                     Log.Information("下载耗时: {Seconds}秒", timeTaken.TotalSeconds);
-                }
-                catch (Exception ex)
-                {
+                } catch (Exception ex) {
                     Log.Error(ex, "模型下载失败");
                     throw new Exception("模型下载失败", ex);
                 }
@@ -347,35 +308,27 @@ namespace OWhisper.NET
             var repeatCount = 0;
             var cts = new CancellationTokenSource();
             var token = cts.Token;
-            try
-            {
-                await foreach (var result in processor.ProcessAsync(wavStream, token))
-                {
+            try {
+                await foreach (var result in processor.ProcessAsync(wavStream, token)) {
                     timeTaken = DateTime.UtcNow - startTime;
-                    Log.Debug("{Start}-->{End}: {Text} [{TimeTaken}]",
+                    Log.Information("{Start}-->{End}: {Text} [{TimeTaken}]",
                         result.Start, result.End, result.Text, timeTaken);
                     ToReturn.Add($"{startId}");
                     ToReturn.Add($"{result.Start.ToString(@"hh\:mm\:ss\,fff")} --> {result.End.ToString(@"hh\:mm\:ss\,fff")}");
                     ToReturn.Add($"{result.Text}\n");
                     startId++;
                     startTime = DateTime.UtcNow;
-                    if (lastText.Equals(result.Text.Trim()))
-                    {
+                    if (lastText.Equals(result.Text.Trim())) {
                         repeatCount++;
-                    }
-                    else
-                    {
+                    } else {
                         repeatCount = 0;
                         lastText = result.Text.Trim();
                     }
-                    if (repeatCount > 100)
-                    {
+                    if (repeatCount > 100) {
                         cts.Cancel();
                     }
                 }
-            }
-            catch (TaskCanceledException ex)
-            {
+            } catch (TaskCanceledException ex) {
                 Log.Error(ex, "处理过程中发生错误");
             }
 
@@ -385,8 +338,7 @@ namespace OWhisper.NET
             return string.Join("\n", ToReturn);
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             _processor?.Dispose();
             _processor = null;
         }
