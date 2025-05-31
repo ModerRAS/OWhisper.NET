@@ -8,12 +8,13 @@ using System.Text;
 using System.Linq;
 using Whisper.net;
 using Whisper.net.Ggml;
+using Serilog;
 
 namespace OWhisper.NET
 {
     public sealed class WhisperService : IDisposable
     {
-        private static readonly Lazy<WhisperService> _instance = 
+        private static readonly Lazy<WhisperService> _instance =
             new Lazy<WhisperService>(() => new WhisperService());
         
         public static WhisperService Instance => _instance.Value;
@@ -27,12 +28,13 @@ namespace OWhisper.NET
         }
 
         private ServiceStatus _status = ServiceStatus.Stopped;
-        private Thread _serviceThread;
         private readonly object _lock = new object();
 
         public event EventHandler<ServiceStatus> StatusChanged;
 
-        private WhisperService() { }
+        private WhisperService()
+        {
+        }
 
         public ServiceStatus GetStatus() => _status;
 
@@ -80,14 +82,11 @@ namespace OWhisper.NET
             {
                 if (_status != ServiceStatus.Stopped) return;
                 
+                Log.Information("服务状态变更: {OldStatus} -> {NewStatus}", _status, ServiceStatus.Starting);
                 _status = ServiceStatus.Starting;
                 StatusChanged?.Invoke(this, _status);
+                Log.Information("启动服务线程...");
                 
-                _serviceThread = new Thread(ServiceWorker)
-                {
-                    IsBackground = true
-                };
-                _serviceThread.Start();
             }
         }
 
@@ -98,14 +97,15 @@ namespace OWhisper.NET
         /// <returns>转写文本</returns>
         public async Task<TranscriptionResult> Transcribe(byte[] audioData)
         {
-            if (_status != ServiceStatus.Running)
-            {
-                throw new AudioProcessingException("SERVICE_NOT_RUNNING", "语音识别服务未运行");
-            }
-
             // 前置音频验证
-            if (!IsValidMp3(audioData) && !IsValidWav(audioData))
+            Log.Information("验证音频数据格式...");
+            bool isMp3 = IsValidMp3(audioData);
+            bool isWav = IsValidWav(audioData);
+            Log.Information("音频格式检测 - MP3: {IsMp3}, WAV: {IsWav}", isMp3, isWav);
+            
+            if (!isMp3 && !isWav)
             {
+                Log.Error("不支持的音频格式");
                 throw new AudioProcessingException("INVALID_AUDIO_FORMAT", "不支持的音频格式");
             }
 
@@ -122,39 +122,14 @@ namespace OWhisper.NET
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"转写过程中发生错误: {ex}");
+                Log.Error(ex, "转写过程中发生错误");
                 throw;
             }
         }
 
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
-        private void ServiceWorker()
-        {
-            _status = ServiceStatus.Running;
-            StatusChanged?.Invoke(this, _status);
-
-            // 初始化Whisper功能
-            var whisperManager = new WhisperManager();
-            
-            try
-            {
-                while (!_cts.IsCancellationRequested && _status == ServiceStatus.Running)
-                {
-                    // 主服务循环
-                    Thread.Sleep(100);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                Console.WriteLine("服务线程收到取消请求，正在优雅退出...");
-            }
-            finally
-            {
-                whisperManager.Dispose();
-                Console.WriteLine("服务线程资源已释放");
-            }
-        }
+        
 
         public void Stop()
         {
@@ -162,28 +137,18 @@ namespace OWhisper.NET
             {
                 if (_status != ServiceStatus.Running)
                 {
-                    Console.WriteLine($"服务状态为{_status}，无需停止");
+                    Log.Information("服务状态为{Status}，无需停止", _status);
                     return;
                 }
                 
                 _status = ServiceStatus.Stopping;
                 StatusChanged?.Invoke(this, _status);
-                Console.WriteLine("正在停止服务线程...");
+                Log.Information("正在停止服务线程...");
                 
                 _cts.Cancel();
-                
-                if (_serviceThread != null && _serviceThread.IsAlive)
-                {
-                    if (!_serviceThread.Join(TimeSpan.FromSeconds(5)))
-                    {
-                        Console.WriteLine($"警告: 线程{_serviceThread.ManagedThreadId}未在5秒内退出");
-                    }
-                }
-                
-                _serviceThread = null;
                 _status = ServiceStatus.Stopped;
                 StatusChanged?.Invoke(this, _status);
-                Console.WriteLine("服务已完全停止");
+                Log.Information("服务已完全停止");
             }
         }
 
@@ -193,17 +158,6 @@ namespace OWhisper.NET
             {
                 Stop();
                 
-                if (_serviceThread != null && _serviceThread.IsAlive)
-                {
-                    try
-                    {
-                        _serviceThread.Abort();
-                    }
-                    catch (PlatformNotSupportedException)
-                    {
-                        // 忽略平台不支持异常
-                    }
-                }
                 
                 _cts?.Dispose();
             }
@@ -246,7 +200,7 @@ namespace OWhisper.NET
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"检查模型状态失败: {ex}");
+                Log.Error(ex, "检查模型状态失败");
                 return (false, false, 0, _modelPath);
             }
         }
@@ -254,14 +208,14 @@ namespace OWhisper.NET
             if (!Directory.Exists(targetModelsDir)) {
                 try {
                     Directory.CreateDirectory(targetModelsDir);
-                    Console.WriteLine($"创建模型目录: {targetModelsDir}");
+                    Log.Information("创建模型目录: {ModelDir}", targetModelsDir);
                 } catch (Exception ex) {
-                    Console.WriteLine($"创建模型目录失败: {ex}");
+                    Log.Error(ex, "创建模型目录失败");
                     throw new AudioProcessingException("MODEL_DIR_CREATE_FAILED", $"无法创建模型目录: {ex.Message}");
                 }
             }
 
-            Console.WriteLine($"开始下载模型: {ModelName}...");
+            Log.Information("开始下载模型: {ModelName}...", ModelName);
             var downloadStartTime = DateTime.UtcNow;
             
             try {
@@ -283,7 +237,7 @@ namespace OWhisper.NET
                         totalBytes += bytesRead;
                         
                         if (DateTime.UtcNow - downloadStartTime > TimeSpan.FromSeconds(5)) {
-                            Console.WriteLine($"已下载: {totalBytes / (1024 * 1024)}MB");
+                            Log.Information("已下载: {DownloadedMB}MB", totalBytes / (1024 * 1024));
                             downloadStartTime = DateTime.UtcNow;
                         }
                     }
@@ -293,22 +247,22 @@ namespace OWhisper.NET
                         File.Delete(finalPath);
                     }
                     File.Move(tempFilePath, finalPath);
-                    Console.WriteLine($"模型下载完成，保存到: {Path.Combine(targetModelsDir, ModelName)}");
+                    Log.Information("模型下载完成，保存到: {ModelPath}", Path.Combine(targetModelsDir, ModelName));
                 } catch (IOException ex) {
                     if (File.Exists(tempFilePath)) {
                         File.Delete(tempFilePath);
                     }
-                    Console.WriteLine($"文件写入失败: {ex}");
+                    Log.Error(ex, "文件写入失败");
                     throw new AudioProcessingException("MODEL_WRITE_FAILED", $"模型文件写入失败: {ex.Message}");
                 }
             } catch (System.Net.Http.HttpRequestException ex) {
-                Console.WriteLine($"网络请求失败: {ex}");
+                Log.Error(ex, "网络请求失败");
                 throw new AudioProcessingException("NETWORK_ERROR", $"下载模型失败: {ex.Message}");
             } catch (TaskCanceledException ex) {
-                Console.WriteLine($"下载超时: {ex}");
+                Log.Error(ex, "下载超时");
                 throw new AudioProcessingException("DOWNLOAD_TIMEOUT", "模型下载超时");
             } catch (Exception ex) {
-                Console.WriteLine($"下载过程中发生未知错误: {ex}");
+                Log.Error(ex, "下载过程中发生未知错误");
                 throw new AudioProcessingException("DOWNLOAD_FAILED", $"模型下载失败: {ex.Message}");
             }
         }
@@ -345,17 +299,23 @@ namespace OWhisper.NET
             {
                 Directory.CreateDirectory(_modelDir);
             }
-            if (!File.Exists(_modelPath))
+            Log.Information("检查模型文件: {ModelPath}", _modelPath);
+            var modelStatus = CheckModelStatus();
+            Log.Information("模型状态 - 存在: {Exists}, 有效: {Valid}, 大小: {Size}字节",
+                modelStatus.exists, modelStatus.valid, modelStatus.size);
+            
+            if (!modelStatus.exists || !modelStatus.valid)
             {
                 try
                 {
+                    Log.Information("开始下载模型文件...");
                     await DownloadModelAsync(ggmlType, _modelDir);
                     timeTaken = DateTime.UtcNow - startTime;
-                    Console.WriteLine($"Time Taken to Download: {timeTaken.TotalSeconds} Seconds");
+                    Log.Information("下载耗时: {Seconds}秒", timeTaken.TotalSeconds);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"模型下载失败: {ex}");
+                    Log.Error(ex, "模型下载失败");
                     throw new Exception("模型下载失败", ex);
                 }
             }
@@ -370,12 +330,12 @@ namespace OWhisper.NET
                                                       .Build();
 
             timeTaken = DateTime.UtcNow - startTime;
-            Console.WriteLine("Time Taken to init Whisper: {0}", timeTaken.ToString());
+            Log.Information("Whisper初始化耗时: {TimeTaken}", timeTaken);
 
             using var wavStream = new MemoryStream(audioData);
             wavStream.Seek(0, SeekOrigin.Begin);
 
-            Console.WriteLine("⟫ Starting Whisper processing...");
+            Log.Information("⟫ Starting Whisper processing...");
 
             startTime = DateTime.UtcNow;
 
@@ -392,7 +352,8 @@ namespace OWhisper.NET
                 await foreach (var result in processor.ProcessAsync(wavStream, token))
                 {
                     timeTaken = DateTime.UtcNow - startTime;
-                    Console.WriteLine($"{result.Start.ToString()}-->{result.End.ToString()}: {result.Text,-150} [{timeTaken.ToString()}]");
+                    Log.Debug("{Start}-->{End}: {Text} [{TimeTaken}]",
+                        result.Start, result.End, result.Text, timeTaken);
                     ToReturn.Add($"{startId}");
                     ToReturn.Add($"{result.Start.ToString(@"hh\:mm\:ss\,fff")} --> {result.End.ToString(@"hh\:mm\:ss\,fff")}");
                     ToReturn.Add($"{result.Text}\n");
@@ -415,11 +376,11 @@ namespace OWhisper.NET
             }
             catch (TaskCanceledException ex)
             {
-                Console.WriteLine(ex.ToString());
+                Log.Error(ex, "处理过程中发生错误");
             }
 
 
-            Console.WriteLine("⟫ Completed Whisper processing...");
+            Log.Information("⟫ Completed Whisper processing...");
 
             return string.Join("\n", ToReturn);
         }

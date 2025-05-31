@@ -5,6 +5,10 @@ using EmbedIO.WebApi;
 using EmbedIO.Routing;
 using System;
 using System.Threading.Tasks;
+using Serilog;
+using HttpMultipartParser;
+using System.IO;
+using System.Linq;
 
 namespace OWhisper.NET
 {
@@ -199,20 +203,61 @@ namespace OWhisper.NET
         {
             try
             {
-                var audioData = await HttpContext.GetRequestDataAsync<byte[]>();
+                // 解析multipart/form-data请求
+                if (HttpContext.Request.InputStream == null)
+                {
+                    Log.Error("请求输入流为空");
+                    throw new AudioProcessingException("INVALID_REQUEST", "无效的请求格式");
+                }
+
+                var parser = await MultipartFormDataParser.ParseAsync(HttpContext.Request.InputStream);
+                var filePart = parser.Files.FirstOrDefault();
+
+                if (filePart == null)
+                {
+                    Log.Error("请求中未包含文件");
+                    throw new AudioProcessingException("NO_FILE_UPLOADED", "请上传音频文件");
+                }
+
+                // 验证文件格式
+                var fileName = filePart.FileName?.ToLower() ?? string.Empty;
+                if (!fileName.EndsWith(".mp3") && !fileName.EndsWith(".wav"))
+                {
+                    Log.Error("不支持的文件格式: {FileName}", fileName);
+                    throw new AudioProcessingException("UNSUPPORTED_FILE_FORMAT", "仅支持.mp3和.wav格式");
+                }
+
+                // 读取文件数据
+                byte[] audioData;
+                using (var memoryStream = new MemoryStream())
+                {
+                    await filePart.Data.CopyToAsync(memoryStream);
+                    audioData = memoryStream.ToArray();
+                }
+
+                // 验证音频数据
+                if (audioData.Length == 0)
+                {
+                    Log.Error("无效的音频数据: 零长度");
+                    throw new AudioProcessingException("INVALID_AUDIO_DATA", "音频数据不能为空");
+                }
+
+                Log.Information("开始处理音频文件: {FileName}, 长度: {Length}字节", fileName, audioData.Length);
                 var result = await _whisperService.Transcribe(audioData);
+                Log.Information("音频转写完成");
                 
                 return ApiResponse<TranscriptionResult>.Success(result);
             }
             catch (AudioProcessingException ex)
             {
                 HttpContext.Response.StatusCode = 400;
+                Log.Error(ex, "音频处理错误: {ErrorCode} - {Message}", ex.ErrorCode, ex.Message);
                 return ApiResponse<TranscriptionResult>.CreateError(ex.ErrorCode, ex.Message);
             }
             catch (Exception ex)
             {
                 HttpContext.Response.StatusCode = 500;
-                Console.WriteLine($"转写失败: {ex}");
+                Log.Error(ex, "转写失败");
                 return ApiResponse<TranscriptionResult>.CreateError("INTERNAL_ERROR", "内部服务器错误");
             }
         }
