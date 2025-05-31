@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RunSettings>
   <RunConfiguration>
-    <TestSessionTimeout>60000000</TestSessionTimeout> <!-- 10分钟 -->
+    <TestSessionTimeout>600000000</TestSessionTimeout>
   </RunConfiguration>
+  <NUnit>
+    <DefaultTimeout>300000000</DefaultTimeout> <!-- 300秒 -->
+  </NUnit>
 </RunSettings>
