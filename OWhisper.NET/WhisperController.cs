@@ -1,4 +1,6 @@
 using EmbedIO;
+using OWhisper.NET.Models;
+using OWhisper.NET.Models;
 using EmbedIO.WebApi;
 using EmbedIO.Routing;
 using System;
@@ -15,9 +17,9 @@ namespace OWhisper.NET
         }
 
         [Route(HttpVerbs.Get, "/")]
-        public async Task<object> GetApiInfo()
+        public async Task<ApiResponse<object>> GetApiInfo()
         {
-            return await Task.FromResult(new {
+            return ApiResponse<object>.Success(new {
                 endpoints = new[] {
                     "/api/status",
                     "/api/start",
@@ -41,27 +43,26 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Get, "/api/status")]
-        public async Task<object> GetStatus()
+        public async Task<ApiResponse<object>> GetStatus()
         {
             try
             {
                 var status = _whisperService.GetStatus();
-                return new
+                return ApiResponse<object>.Success(new
                 {
-                    status = "success",
-                    data = new
-                    {
-                        serviceStatus = status.ToString()
-                    }
-                };
+                    serviceStatus = status.ToString()
+                });
+            }
+            catch (AudioProcessingException ex)
+            {
+                HttpContext.Response.StatusCode = 400;
+                return ApiResponse<object>.CreateError(ex.ErrorCode, ex.Message);
             }
             catch (Exception ex)
             {
-                return new
-                {
-                    status = "error",
-                    error = ex.Message
-                };
+                HttpContext.Response.StatusCode = 500;
+                Console.WriteLine($"获取服务状态失败: {ex}");
+                return ApiResponse<object>.CreateError("INTERNAL_ERROR", "内部服务器错误");
             }
         }
 
@@ -80,23 +81,23 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Post, "/api/start")]
-        public async Task<object> StartService()
+        public async Task<ApiResponse<object>> StartService()
         {
             try
             {
                 _whisperService.Start();
-                return new
-                {
-                    status = "success"
-                };
+                return ApiResponse<object>.Success(null);
+            }
+            catch (AudioProcessingException ex)
+            {
+                HttpContext.Response.StatusCode = 400;
+                return ApiResponse<object>.CreateError(ex.ErrorCode, ex.Message);
             }
             catch (Exception ex)
             {
-                return new
-                {
-                    status = "error",
-                    error = ex.Message
-                };
+                HttpContext.Response.StatusCode = 500;
+                Console.WriteLine($"启动服务失败: {ex}");
+                return ApiResponse<object>.CreateError("INTERNAL_ERROR", "内部服务器错误");
             }
         }
 
@@ -115,23 +116,23 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Post, "/api/stop")]
-        public async Task<object> StopService()
+        public async Task<ApiResponse<object>> StopService()
         {
             try
             {
                 _whisperService.Stop();
-                return new
-                {
-                    status = "success"
-                };
+                return ApiResponse<object>.Success(null);
+            }
+            catch (AudioProcessingException ex)
+            {
+                HttpContext.Response.StatusCode = 400;
+                return ApiResponse<object>.CreateError(ex.ErrorCode, ex.Message);
             }
             catch (Exception ex)
             {
-                return new
-                {
-                    status = "error",
-                    error = ex.Message
-                };
+                HttpContext.Response.StatusCode = 500;
+                Console.WriteLine($"停止服务失败: {ex}");
+                return ApiResponse<object>.CreateError("INTERNAL_ERROR", "内部服务器错误");
             }
         }
 
@@ -154,36 +155,25 @@ namespace OWhisper.NET
         /// }
         /// </returns>
         [Route(HttpVerbs.Post, "/api/transcribe")]
-        public async Task<object> Transcribe()
+        public async Task<ApiResponse<TranscriptionResult>> Transcribe()
         {
             try
             {
-                var startTime = DateTime.UtcNow;
                 var audioData = await HttpContext.GetRequestDataAsync<byte[]>();
+                var result = await _whisperService.Transcribe(audioData);
                 
-                // 音频预处理
-                var processedAudio = AudioProcessor.ProcessAudio(audioData);
-                
-                // 语音转文字
-                var transcription = await _whisperService.Transcribe(processedAudio);
-                
-                return new
-                {
-                    status = "success",
-                    data = new
-                    {
-                        text = transcription,
-                        processingTime = (DateTime.UtcNow - startTime).TotalSeconds
-                    }
-                };
+                return ApiResponse<TranscriptionResult>.Success(result);
+            }
+            catch (AudioProcessingException ex)
+            {
+                HttpContext.Response.StatusCode = 400;
+                return ApiResponse<TranscriptionResult>.CreateError(ex.ErrorCode, ex.Message);
             }
             catch (Exception ex)
             {
-                return new
-                {
-                    status = "error",
-                    error = ex.Message
-                };
+                HttpContext.Response.StatusCode = 500;
+                Console.WriteLine($"转写失败: {ex}");
+                return ApiResponse<TranscriptionResult>.CreateError("INTERNAL_ERROR", "内部服务器错误");
             }
         }
     }
