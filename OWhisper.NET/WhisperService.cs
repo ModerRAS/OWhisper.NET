@@ -67,6 +67,22 @@ namespace OWhisper.NET
             }
         }
 
+        /// <summary>
+        /// 转录音频数据为文本
+        /// </summary>
+        /// <param name="audioData">音频数据</param>
+        /// <returns>转写文本</returns>
+        public async Task<string> Transcribe(byte[] audioData)
+        {
+            if (_status != ServiceStatus.Running)
+            {
+                throw new InvalidOperationException("服务未运行");
+            }
+
+            using var whisperManager = new WhisperManager();
+            return await whisperManager.Transcribe(audioData);
+        }
+
         private void ServiceWorker()
         {
             _status = ServiceStatus.Running;
@@ -113,6 +129,17 @@ namespace OWhisper.NET
         {
             TimeSpan timeTaken;
             var startTime = DateTime.UtcNow;
+            
+            // 音频预处理
+            try
+            {
+                audioData = AudioProcessor.ProcessAudio(audioData);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"音频预处理失败: {ex.Message}");
+                throw;
+            }
             if (!File.Exists(_modelPath))
             {
                 await DownloadModelAsync(ggmlType, _modelPath);
@@ -132,8 +159,7 @@ namespace OWhisper.NET
             timeTaken = DateTime.UtcNow - startTime;
             Console.WriteLine("Time Taken to init Whisper: {0}", timeTaken.ToString());
 
-            var wavStream = new MemoryStream(audioData);
-            // This section sets the wavStream to the beginning of the stream. (This is required because the wavStream was written to in the previous section)
+            using var wavStream = new MemoryStream(audioData);
             wavStream.Seek(0, SeekOrigin.Begin);
 
             Console.WriteLine("⟫ Starting Whisper processing...");
