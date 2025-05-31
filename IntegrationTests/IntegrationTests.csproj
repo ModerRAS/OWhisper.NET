@@ -4,6 +4,7 @@
     <TargetFramework>net48</TargetFramework>
     <IsPackable>false</IsPackable>
     <LangVersion>9.0</LangVersion>
+    <TestTimeout>7200000</TestTimeout>
   </PropertyGroup>
 
   <ItemGroup>
