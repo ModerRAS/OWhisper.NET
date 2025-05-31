@@ -28,7 +28,7 @@ jobs:
       run: dotnet build --no-restore
       
     - name: Test
-      run: dotnet test --no-build --verbosity normal
+      run: dotnet test --no-build --verbosity normal --settings test.runsettings
       
     - name: Publish Application
       run: dotnet publish OWhisper.NET/OWhisper.NET.csproj -c Release -o publish -r win-x64 --self-contained false

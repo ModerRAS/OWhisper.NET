@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!-- Configurations for test execution -->
+  <RunConfiguration>
+    <!-- Timeout in milliseconds for test case execution -->
+    <DefaultTimeout>7200000</DefaultTimeout> <!-- 2 hours -->
+  </RunConfiguration>
+  
+  <!-- Logger configurations -->
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="console" enabled="True" />
+    </Loggers>
+  </LoggerRunSettings>
+</RunSettings>
