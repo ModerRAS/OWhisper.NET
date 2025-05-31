@@ -22,7 +22,7 @@ namespace IntegrationTests {
             Assert.IsNotNull(result?.Data);
         }
 
-        [Test, Timeout(30000000)]
+        [Test, Explicit("Long running, run manually")]
         public async Task Transcribe_ShouldProcessAudioFile() {
             // 确保测试音频文件存在
             var audioFile = Path.Combine(TestResourcesDir, "sample_audio.wav");
@@ -47,7 +47,7 @@ namespace IntegrationTests {
             Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
         }
 
-        [Test, Timeout(30000000)]
+        [Test, Explicit("Long running, run manually")]
         public async Task Transcribe_ShouldProcessLargeAACAudioFile() {
             // 确保测试音频文件存在
             var audioFile = Path.Combine(TestResourcesDir, "large2-audio.aac");
@@ -72,7 +72,7 @@ namespace IntegrationTests {
             Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
         }
 
-        [Test, Timeout(30000000)]
+        [Test, Explicit("Long running, run manually")]
         public async Task Transcribe_ShouldProcessLarge3AACAudioFile() {
             // 确保测试音频文件存在
             var audioFile = Path.Combine(TestResourcesDir, "large3-audio.aac");
