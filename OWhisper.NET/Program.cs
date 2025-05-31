@@ -41,7 +41,7 @@ namespace OWhisper.NET {
                 Log.Information("应用程序启动");
 
                 // 初始化Velopack更新管理器
-                _updateManager = new UpdateManager(new GithubSource("https://github.com/ModerRAS/OWhisper.NET", null, false));
+                _updateManager = new UpdateManager("https://velopack.miaostay.com/");
 
                 // 初始化核心服务
                 _whisperService = WhisperService.Instance;
