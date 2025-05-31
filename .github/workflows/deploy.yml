@@ -20,11 +20,6 @@ jobs:
         
     - name: Add msbuild to PATH
       uses: microsoft/setup-msbuild@v1.1
-      
-    - name: Setup Velopack
-      uses: MinoruSekine/setup-scoop@v4.0.1
-      with:
-        apps: vpk
         
     - name: Restore dependencies
       run: dotnet restore
@@ -48,6 +43,7 @@ jobs:
         
       shell: pwsh
       run: |
+        dotnet tool install -g vpk
         $Version = Get-Date -Format "yyyy.M.$env:BUILD_NUMBER"
         vpk download s3 --bucket $env:R2_BUCKET --endpoint $env:S3_ENDPOINT --keyId $env:R2_ACCESS_KEY_ID --secret $env:R2_SECRET_ACCESS_KEY
         vpk pack -u OWhisper.NET --channel nightly-win-x64 -v $Version -p publish --framework net48
