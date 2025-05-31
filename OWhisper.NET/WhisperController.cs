@@ -24,10 +24,50 @@ namespace OWhisper.NET
                     "/api/status",
                     "/api/start",
                     "/api/stop",
-                    "/api/transcribe"
+                    "/api/transcribe",
+                    "/api/model/status"
                 },
                 service = "OWhisper.NET API"
             });
+        }
+
+        /// <summary>
+        /// 获取模型文件状态
+        /// </summary>
+        /// <returns>
+        /// 返回:
+        /// {
+        ///     status: "success",
+        ///     data: {
+        ///         exists: true|false,
+        ///         valid: true|false,
+        ///         size: 文件大小(字节),
+        ///         path: "模型文件路径"
+        ///     }
+        /// }
+        /// </returns>
+        [Route(HttpVerbs.Get, "/api/model/status")]
+        public async Task<ApiResponse<object>> GetModelStatus()
+        {
+            try
+            {
+                var whisperManager = new WhisperManager();
+                var (exists, valid, size, path) = whisperManager.CheckModelStatus();
+                
+                return ApiResponse<object>.Success(new
+                {
+                    exists,
+                    valid,
+                    size,
+                    path
+                });
+            }
+            catch (Exception ex)
+            {
+                HttpContext.Response.StatusCode = 500;
+                Console.WriteLine($"获取模型状态失败: {ex}");
+                return ApiResponse<object>.CreateError("MODEL_STATUS_ERROR", "获取模型状态失败");
+            }
         }
 
         /// <summary>

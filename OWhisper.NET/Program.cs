@@ -64,18 +64,41 @@ namespace OWhisper.NET
                 _whisperService?.Dispose();
                 Console.WriteLine("Whisper服务已释放");
                 
-                // 终止所有子进程
+                // 优雅关闭所有子进程
                 var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
-                foreach (var child in GetChildProcesses(currentProcess.Id))
+                var children = GetChildProcesses(currentProcess.Id);
+                Console.WriteLine($"找到 {children.Count} 个子进程需要关闭");
+                
+                foreach (var child in children)
                 {
                     try
                     {
-                        Console.WriteLine($"终止子进程: {child.ProcessName} (PID: {child.Id})");
-                        child.Kill();
+                        Console.WriteLine($"尝试关闭子进程: {child.ProcessName} (PID: {child.Id})");
+                        
+                        // 先尝试优雅关闭
+                        if (!child.CloseMainWindow())
+                        {
+                            Console.WriteLine("优雅关闭失败，尝试终止进程");
+                            child.Kill();
+                        }
+                        
+                        // 等待进程退出
+                        if (!child.WaitForExit(5000))
+                        {
+                            Console.WriteLine("警告: 子进程未在5秒内退出");
+                        }
+                        else
+                        {
+                            Console.WriteLine("子进程已成功退出");
+                        }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"终止子进程失败: {ex.Message}");
+                        Console.WriteLine($"关闭子进程时出错: {ex.Message}");
+                    }
+                    finally
+                    {
+                        child.Dispose();
                     }
                 }
                 
@@ -91,28 +114,30 @@ namespace OWhisper.NET
         private static List<System.Diagnostics.Process> GetChildProcesses(int parentId)
         {
             var children = new List<System.Diagnostics.Process>();
-            var processes = System.Diagnostics.Process.GetProcesses();
             
-            foreach (var process in processes)
+            try
             {
-                try
+                // 使用更高效的WMI查询方式
+                using var searcher = new ManagementObjectSearcher(
+                    $"SELECT ProcessId FROM Win32_Process WHERE ParentProcessId={parentId}");
+                
+                foreach (var obj in searcher.Get())
                 {
-                    if (process.Id == parentId) continue;
-                    
-                    using (var query = new System.Management.ManagementObjectSearcher(
-                        $"SELECT * FROM Win32_Process WHERE ParentProcessId={parentId}"))
+                    var childId = Convert.ToInt32(obj["ProcessId"]);
+                    try
                     {
-                        foreach (var mo in query.Get())
+                        var childProcess = System.Diagnostics.Process.GetProcessById(childId);
+                        if (childProcess != null && !childProcess.HasExited)
                         {
-                            if ((uint)mo["ProcessId"] == process.Id)
-                            {
-                                children.Add(process);
-                                break;
-                            }
+                            children.Add(childProcess);
                         }
                     }
+                    catch (ArgumentException) { /* 进程可能已退出 */ }
                 }
-                catch { /* 忽略访问错误 */ }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"查询子进程时出错: {ex.Message}");
             }
             
             return children;

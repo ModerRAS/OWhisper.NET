@@ -91,22 +91,6 @@ namespace OWhisper.NET
             }
         }
 
-        public void Stop()
-        {
-            lock (_lock)
-            {
-                if (_status != ServiceStatus.Running) return;
-                
-                _status = ServiceStatus.Stopping;
-                StatusChanged?.Invoke(this, _status);
-                
-                _serviceThread?.Join(1000);
-                _serviceThread = null;
-                _status = ServiceStatus.Stopped;
-                StatusChanged?.Invoke(this, _status);
-            }
-        }
-
         /// <summary>
         /// 转录音频数据为文本
         /// </summary>
@@ -143,7 +127,7 @@ namespace OWhisper.NET
             }
         }
 
-        private volatile bool _shouldStop = false;
+        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
         private void ServiceWorker()
         {
@@ -155,68 +139,178 @@ namespace OWhisper.NET
             
             try
             {
-                while (!_shouldStop && _status == ServiceStatus.Running)
+                while (!_cts.IsCancellationRequested && _status == ServiceStatus.Running)
                 {
                     // 主服务循环
                     Thread.Sleep(100);
                 }
             }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("服务线程收到取消请求，正在优雅退出...");
+            }
             finally
             {
                 whisperManager.Dispose();
+                Console.WriteLine("服务线程资源已释放");
+            }
+        }
+
+        public void Stop()
+        {
+            lock (_lock)
+            {
+                if (_status != ServiceStatus.Running)
+                {
+                    Console.WriteLine($"服务状态为{_status}，无需停止");
+                    return;
+                }
+                
+                _status = ServiceStatus.Stopping;
+                StatusChanged?.Invoke(this, _status);
+                Console.WriteLine("正在停止服务线程...");
+                
+                _cts.Cancel();
+                
+                if (_serviceThread != null && _serviceThread.IsAlive)
+                {
+                    if (!_serviceThread.Join(TimeSpan.FromSeconds(5)))
+                    {
+                        Console.WriteLine($"警告: 线程{_serviceThread.ManagedThreadId}未在5秒内退出");
+                    }
+                }
+                
+                _serviceThread = null;
+                _status = ServiceStatus.Stopped;
+                StatusChanged?.Invoke(this, _status);
+                Console.WriteLine("服务已完全停止");
             }
         }
 
         public void Dispose()
         {
-            Console.WriteLine("开始释放WhisperService资源...");
-            _shouldStop = true;
-            Stop();
-            
-            // 确保线程完全终止
-            if (_serviceThread != null && _serviceThread.IsAlive)
+            try
             {
-                Console.WriteLine($"等待服务线程终止(线程ID: {_serviceThread.ManagedThreadId})...");
-                if (!_serviceThread.Join(5000)) // 延长到5秒
+                Stop();
+                
+                if (_serviceThread != null && _serviceThread.IsAlive)
                 {
-                    Console.WriteLine("错误: 服务线程未在超时时间内终止，尝试中止线程");
                     try
                     {
-                        _serviceThread.Interrupt();
-                        if (!_serviceThread.Join(1000))
-                        {
-                            _serviceThread.Abort();
-                        }
+                        _serviceThread.Abort();
                     }
-                    catch (Exception ex)
+                    catch (PlatformNotSupportedException)
                     {
-                        Console.WriteLine($"线程中止错误: {ex}");
+                        // 忽略平台不支持异常
                     }
                 }
+                
+                _cts?.Dispose();
+            }
+            catch
+            {
+                // 记录错误到日志系统
+                throw;
             }
             
-            Console.WriteLine("WhisperService资源释放完成");
+            GC.SuppressFinalize(this);
         }
     }
 
-    internal class WhisperManager : IDisposable
+    public class WhisperManager : IDisposable
     {
         private WhisperProcessor _processor;
         private const string ModelName = "ggml-large-v3-turbo.bin";
         const GgmlType ggmlType = GgmlType.LargeV3Turbo;
+        private readonly string _modelDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models");
         private readonly string _modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", ModelName);
         private readonly object _lock = new object();
-        async Task DownloadModelAsync(GgmlType modelType, string targetModelsDir) {
-            if (!Directory.Exists(targetModelsDir)) {
-                Directory.CreateDirectory(targetModelsDir);
+
+        public (bool exists, bool valid, long size, string path) CheckModelStatus()
+        {
+            try
+            {
+                var exists = File.Exists(_modelPath);
+                var valid = false;
+                long size = 0;
+                
+                if (exists)
+                {
+                    var fileInfo = new FileInfo(_modelPath);
+                    size = fileInfo.Length;
+                    // 简单验证模型文件大小(假设有效模型至少10MB)
+                    valid = size > 10 * 1024 * 1024;
+                }
+                
+                return (exists, valid, size, _modelPath);
             }
-            Console.WriteLine($"Model {ModelName} not found. Downloading...");
-            using var client = HttpClientHelper.CreateProxyHttpClient();
-            var downloader = new WhisperGgmlDownloader(client);
-            using var modelStream = await downloader.GetGgmlModelAsync(modelType);
-            using var fileWriter = File.OpenWrite(Path.Combine(targetModelsDir, ModelName));
-            await modelStream.CopyToAsync(fileWriter);
-            Console.WriteLine($"Model {ModelName} downloaded to {targetModelsDir}");
+            catch (Exception ex)
+            {
+                Console.WriteLine($"检查模型状态失败: {ex}");
+                return (false, false, 0, _modelPath);
+            }
+        }
+        public async Task DownloadModelAsync(GgmlType modelType, string targetModelsDir) {
+            if (!Directory.Exists(targetModelsDir)) {
+                try {
+                    Directory.CreateDirectory(targetModelsDir);
+                    Console.WriteLine($"创建模型目录: {targetModelsDir}");
+                } catch (Exception ex) {
+                    Console.WriteLine($"创建模型目录失败: {ex}");
+                    throw new AudioProcessingException("MODEL_DIR_CREATE_FAILED", $"无法创建模型目录: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine($"开始下载模型: {ModelName}...");
+            var downloadStartTime = DateTime.UtcNow;
+            
+            try {
+                using var client = HttpClientHelper.CreateProxyHttpClient();
+                client.Timeout = TimeSpan.FromMinutes(10);
+                var downloader = new WhisperGgmlDownloader(client);
+                
+                using var modelStream = await downloader.GetGgmlModelAsync(modelType);
+                var tempFilePath = Path.Combine(targetModelsDir, $"{ModelName}.tmp");
+                
+                try {
+                    using var fileWriter = File.OpenWrite(tempFilePath);
+                    var buffer = new byte[8192];
+                    long totalBytes = 0;
+                    int bytesRead;
+                    
+                    while ((bytesRead = await modelStream.ReadAsync(buffer, 0, buffer.Length)) > 0) {
+                        await fileWriter.WriteAsync(buffer, 0, bytesRead);
+                        totalBytes += bytesRead;
+                        
+                        if (DateTime.UtcNow - downloadStartTime > TimeSpan.FromSeconds(5)) {
+                            Console.WriteLine($"已下载: {totalBytes / (1024 * 1024)}MB");
+                            downloadStartTime = DateTime.UtcNow;
+                        }
+                    }
+                    
+                    var finalPath = Path.Combine(targetModelsDir, ModelName);
+                    if (File.Exists(finalPath)) {
+                        File.Delete(finalPath);
+                    }
+                    File.Move(tempFilePath, finalPath);
+                    Console.WriteLine($"模型下载完成，保存到: {Path.Combine(targetModelsDir, ModelName)}");
+                } catch (IOException ex) {
+                    if (File.Exists(tempFilePath)) {
+                        File.Delete(tempFilePath);
+                    }
+                    Console.WriteLine($"文件写入失败: {ex}");
+                    throw new AudioProcessingException("MODEL_WRITE_FAILED", $"模型文件写入失败: {ex.Message}");
+                }
+            } catch (System.Net.Http.HttpRequestException ex) {
+                Console.WriteLine($"网络请求失败: {ex}");
+                throw new AudioProcessingException("NETWORK_ERROR", $"下载模型失败: {ex.Message}");
+            } catch (TaskCanceledException ex) {
+                Console.WriteLine($"下载超时: {ex}");
+                throw new AudioProcessingException("DOWNLOAD_TIMEOUT", "模型下载超时");
+            } catch (Exception ex) {
+                Console.WriteLine($"下载过程中发生未知错误: {ex}");
+                throw new AudioProcessingException("DOWNLOAD_FAILED", $"模型下载失败: {ex.Message}");
+            }
         }
 
         private bool IsValidMp3(byte[] audioData)
@@ -247,16 +341,15 @@ namespace OWhisper.NET
             var startTime = DateTime.UtcNow;
             
             // 确保模型目录存在
-            var modelDir = Path.GetDirectoryName(_modelPath);
-            if (!Directory.Exists(modelDir))
+            if (!Directory.Exists(_modelDir))
             {
-                Directory.CreateDirectory(modelDir);
+                Directory.CreateDirectory(_modelDir);
             }
             if (!File.Exists(_modelPath))
             {
                 try
                 {
-                    await DownloadModelAsync(ggmlType, _modelPath);
+                    await DownloadModelAsync(ggmlType, _modelDir);
                     timeTaken = DateTime.UtcNow - startTime;
                     Console.WriteLine($"Time Taken to Download: {timeTaken.TotalSeconds} Seconds");
                 }

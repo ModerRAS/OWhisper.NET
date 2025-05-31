@@ -77,13 +77,38 @@ namespace OWhisper.NET
             base.OnResize(e);
         }
 
+        private bool _disposed = false;
+
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
+            if (!_disposed)
             {
-                trayIcon.Dispose();
+                if (disposing)
+                {
+                    Console.WriteLine("释放TrayApp资源...");
+                    
+                    // 释放托管资源
+                    trayIcon?.Dispose();
+                    trayMenu?.Dispose();
+                    
+                    // 清理服务实例
+                    if (whisperService != null)
+                    {
+                        whisperService.Dispose();
+                        whisperService = null;
+                    }
+                    
+                    Console.WriteLine("TrayApp资源释放完成");
+                }
+                
+                _disposed = true;
             }
             base.Dispose(disposing);
+        }
+
+        ~TrayApp()
+        {
+            Dispose(false);
         }
     }
 
