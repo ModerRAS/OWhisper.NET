@@ -22,7 +22,7 @@ namespace IntegrationTests {
             Assert.IsNotNull(result?.Data);
         }
 
-        [Test]
+        [Test, Timeout(30000000)]
         public async Task Transcribe_ShouldProcessAudioFile() {
             // 确保测试音频文件存在
             var audioFile = Path.Combine(TestResourcesDir, "sample_audio.wav");
