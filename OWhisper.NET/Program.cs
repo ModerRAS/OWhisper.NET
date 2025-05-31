@@ -36,7 +36,7 @@ namespace OWhisper.NET {
                 // 启动WebAPI服务器
                 StartWebApiServer();
 
-                // 启动托盘应用
+                // 启动托盘应用(使用ApplicationContext)
                 Application.Run(new TrayApp(_whisperService));
             } catch (Exception ex) {
                 Log.Fatal(ex, "应用程序启动失败");

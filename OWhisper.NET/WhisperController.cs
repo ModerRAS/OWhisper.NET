@@ -189,9 +189,9 @@ namespace OWhisper.NET {
 
                 // 验证文件格式
                 var fileName = filePart.FileName?.ToLower() ?? string.Empty;
-                if (!fileName.EndsWith(".mp3") && !fileName.EndsWith(".wav")) {
+                if (!fileName.EndsWith(".mp3") && !fileName.EndsWith(".wav") && !fileName.EndsWith(".aac")) {
                     Log.Error("不支持的文件格式: {FileName}", fileName);
-                    throw new AudioProcessingException("UNSUPPORTED_FILE_FORMAT", "仅支持.mp3和.wav格式");
+                    throw new AudioProcessingException("UNSUPPORTED_FILE_FORMAT", "仅支持.mp3、.wav和.aac格式");
                 }
 
                 // 读取文件数据

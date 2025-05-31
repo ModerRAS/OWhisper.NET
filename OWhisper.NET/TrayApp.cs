@@ -3,16 +3,18 @@ using System.Windows.Forms;
 using System.Drawing;
 
 namespace OWhisper.NET {
-    public class TrayApp : Form {
+    public class TrayApp : ApplicationContext {
         private NotifyIcon trayIcon;
         private ContextMenuStrip trayMenu;
         private WhisperService whisperService;
+        private Form1 debugForm;
 
         public TrayApp() : this(null) {
         }
 
         public TrayApp(WhisperService service) {
             whisperService = service;
+            debugForm = new Form1();
 
             // 初始化托盘图标
             trayIcon = new NotifyIcon {
@@ -26,21 +28,15 @@ namespace OWhisper.NET {
             trayMenu.Items.Add("启动服务", null, OnStartService);
             trayMenu.Items.Add("停止服务", null, OnStopService);
             trayMenu.Items.Add("-"); // 分隔线
+            trayMenu.Items.Add("调试窗口", null, OnShowDebug);
+            trayMenu.Items.Add("-"); // 分隔线
             trayMenu.Items.Add("退出", null, OnExit);
 
             trayIcon.ContextMenuStrip = trayMenu;
-            trayIcon.DoubleClick += (s, e) => ShowMainWindow();
+            trayIcon.DoubleClick += (s, e) => OnShowDebug(s, e);
 
             // 初始化服务控制器
             whisperService = WhisperService.Instance;
-        }
-
-        private void ShowMainWindow() {
-            if (WindowState == FormWindowState.Minimized) {
-                WindowState = FormWindowState.Normal;
-            }
-            Show();
-            Activate();
         }
 
         private void OnStartService(object sender, EventArgs e) {
@@ -53,16 +49,13 @@ namespace OWhisper.NET {
             trayIcon.ShowBalloonTip(1000, "服务状态", "服务已停止", ToolTipIcon.Info);
         }
 
+        private void OnShowDebug(object sender, EventArgs e) {
+            debugForm.ShowForDebug();
+        }
+
         private void OnExit(object sender, EventArgs e) {
             trayIcon.Visible = false;
             Program.ExitApplication();
-        }
-
-        protected override void OnResize(EventArgs e) {
-            if (WindowState == FormWindowState.Minimized) {
-                Hide();
-            }
-            base.OnResize(e);
         }
 
         private bool _disposed = false;
@@ -82,6 +75,10 @@ namespace OWhisper.NET {
                         whisperService = null;
                     }
 
+                    // 释放调试窗口
+                    debugForm?.Dispose();
+                    debugForm = null;
+
                     Console.WriteLine("TrayApp资源释放完成");
                 }
 
@@ -94,5 +91,4 @@ namespace OWhisper.NET {
             Dispose(false);
         }
     }
-
 }
