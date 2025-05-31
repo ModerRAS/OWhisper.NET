@@ -1,3 +1,5 @@
+using System.Windows.Forms;
+
 namespace OWhisper.NET
 {
     public partial class Form1 : Form
