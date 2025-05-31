@@ -48,6 +48,56 @@ namespace IntegrationTests {
         }
 
         [Test]
+        public async Task Transcribe_ShouldProcessLargeAACAudioFile() {
+            // 确保测试音频文件存在
+            var audioFile = Path.Combine(TestResourcesDir, "large2-audio.aac");
+            if (!File.Exists(audioFile)) {
+                Assert.Fail("测试音频文件不存在");
+            }
+
+            using var form = new MultipartFormDataContent();
+            var audioBytes = File.ReadAllBytes(audioFile);
+            var fileContent = new ByteArrayContent(audioBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
+            form.Add(fileContent, "file", "large2-audio.aac");
+
+            var response = await Client.PostAsync("/api/transcribe", form);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<TranscriptionResult>>();
+
+            Assert.AreEqual("success", result?.Status, $"API返回状态不正确: {result?.Status}");
+            Assert.IsNotNull(result?.Data?.Text, "转录文本为空");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(result?.Data?.Text), "转录文本为空或空白");
+            Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
+        }
+
+        [Test]
+        public async Task Transcribe_ShouldProcessLarge3AACAudioFile() {
+            // 确保测试音频文件存在
+            var audioFile = Path.Combine(TestResourcesDir, "large3-audio.aac");
+            if (!File.Exists(audioFile)) {
+                Assert.Fail("测试音频文件不存在");
+            }
+
+            using var form = new MultipartFormDataContent();
+            var audioBytes = File.ReadAllBytes(audioFile);
+            var fileContent = new ByteArrayContent(audioBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
+            form.Add(fileContent, "file", "large3-audio.aac");
+
+            var response = await Client.PostAsync("/api/transcribe", form);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<TranscriptionResult>>();
+
+            Assert.AreEqual("success", result?.Status, $"API返回状态不正确: {result?.Status}");
+            Assert.IsNotNull(result?.Data?.Text, "转录文本为空");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(result?.Data?.Text), "转录文本为空或空白");
+            Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
+        }
+
+        [Test]
         public async Task Transcribe_ShouldFailWithInvalidAudio() {
             using var form = new MultipartFormDataContent();
             var invalidBytes = new byte[] { 0x00, 0x01, 0x02 };

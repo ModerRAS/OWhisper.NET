@@ -21,6 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="TestResources\large2-audio.aac">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="TestResources\large3-audio.aac">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="TestResources\sample_audio.mp3">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
