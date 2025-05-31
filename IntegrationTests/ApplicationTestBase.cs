@@ -12,27 +12,27 @@ namespace IntegrationTests
     [TestFixture]
     public class ApplicationTestBase : IDisposable
     {
-        protected readonly HttpClient Client;
-        protected readonly string TestResourcesDir;
+        protected HttpClient Client;
+        protected string TestResourcesDir;
         private Process _appProcess;
         private readonly List<int> _processIds = new List<int>();
-
-        public ApplicationTestBase()
+        [OneTimeSetUp]
+        public void SetUp()
         {
             Console.WriteLine("初始化测试环境...");
-            
+
             // 配置测试资源路径
             TestResourcesDir = Path.Combine(
                 Path.GetDirectoryName(typeof(ApplicationTestBase).Assembly.Location),
                 "TestResources");
 
             Console.WriteLine($"测试资源目录: {TestResourcesDir}");
-            
+
             if (!Directory.Exists(TestResourcesDir))
             {
                 Console.WriteLine("测试资源目录不存在，尝试创建...");
                 Directory.CreateDirectory(TestResourcesDir);
-                
+
                 if (!Directory.Exists(TestResourcesDir))
                 {
                     throw new DirectoryNotFoundException($"Test resources directory not found: {TestResourcesDir}");
@@ -54,7 +54,7 @@ namespace IntegrationTests
                     RedirectStandardError = true
                 }
             };
-            
+
             try
             {
                 if (!_appProcess.Start())
@@ -63,7 +63,7 @@ namespace IntegrationTests
                 }
                 Console.WriteLine($"主进程已启动，PID: {_appProcess.Id}");
                 _processIds.Add(_appProcess.Id);
-                
+
                 // 捕获初始进程树
                 Console.WriteLine("扫描初始进程树...");
                 var initialProcesses = Process.GetProcessesByName("OWhisper.NET");

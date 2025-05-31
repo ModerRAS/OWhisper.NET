@@ -9,9 +9,12 @@ using NAudio.Wave;
 namespace IntegrationTests
 {
     [TestFixture]
-    public class AudioProcessorTests : ApplicationTestBase, IDisposable
+    public class AudioProcessorTests : IDisposable
     {
         private readonly string _testAudioDir;
+        private readonly string TestResourcesDir = Path.Combine(
+                Path.GetDirectoryName(typeof(ApplicationTestBase).Assembly.Location),
+                "TestResources");
         private readonly List<string> _tempFiles = new();
 
         public AudioProcessorTests()

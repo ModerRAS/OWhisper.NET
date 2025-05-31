@@ -19,6 +19,7 @@ namespace IntegrationTests
             response.EnsureSuccessStatusCode();
             
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+            Console.WriteLine(result);
             Assert.IsNotNull(result?.Status);
             Assert.IsNotNull(result?.Data);
         }
@@ -33,20 +34,13 @@ namespace IntegrationTests
                 Assert.Fail("测试音频文件不存在");
             }
 
-            // // 检查模型文件
-            // var modelPath = Path.Combine(Environment.CurrentDirectory, "Models", "ggml-large-v3-turbo.bin");
-            // if (!File.Exists(modelPath))
-            // {
-            //     Assert.Inconclusive("缺少Whisper模型文件，测试跳过");
-            //     return;
-            // }
-
+            using var form = new MultipartFormDataContent();
             var audioBytes = File.ReadAllBytes(audioFile);
+            var fileContent = new ByteArrayContent(audioBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(fileContent, "file", "sample_audio.wav");
             
-            using var content = new ByteArrayContent(audioBytes);
-            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
-            
-            var response = await Client.PostAsync("/api/transcribe", content);
+            var response = await Client.PostAsync("/api/transcribe", form);
             response.EnsureSuccessStatusCode();
             
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<TranscriptionResult>>();
@@ -60,10 +54,68 @@ namespace IntegrationTests
         [Test]
         public async Task Transcribe_ShouldFailWithInvalidAudio()
         {
+            using var form = new MultipartFormDataContent();
             var invalidBytes = new byte[] { 0x00, 0x01, 0x02 };
-            using var content = new ByteArrayContent(invalidBytes);
+            var fileContent = new ByteArrayContent(invalidBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(fileContent, "file", "invalid_audio.wav");
             
-            var response = await Client.PostAsync("/api/transcribe", content);
+            var response = await Client.PostAsync("/api/transcribe", form);
+            Assert.IsTrue(response.IsSuccessStatusCode);
+            
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+            Assert.AreEqual("error", result?.Status);
+            Assert.IsNotNull(result?.Error);
+        }
+
+        [Test]
+        public async Task Transcribe_ShouldFailWithEmptyFile()
+        {
+            using var form = new MultipartFormDataContent();
+            var emptyBytes = Array.Empty<byte>();
+            var fileContent = new ByteArrayContent(emptyBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(fileContent, "file", "empty_audio.wav");
+            
+            var response = await Client.PostAsync("/api/transcribe", form);
+            Assert.IsTrue(response.IsSuccessStatusCode);
+            
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+            Assert.AreEqual("error", result?.Status);
+            Assert.IsNotNull(result?.Error);
+        }
+
+        [Test]
+        public async Task Transcribe_ShouldFailWithLargeFile()
+        {
+            // 创建10MB的测试文件
+            var largeBytes = new byte[10 * 1024 * 1024]; // 10MB
+            new Random().NextBytes(largeBytes);
+            
+            using var form = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(largeBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(fileContent, "file", "large_audio.wav");
+            
+            var response = await Client.PostAsync("/api/transcribe", form);
+            Assert.IsTrue(response.IsSuccessStatusCode);
+            
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+            Assert.AreEqual("error", result?.Status);
+            Assert.IsNotNull(result?.Error);
+        }
+
+        [Test]
+        public async Task Transcribe_ShouldFailWithInvalidFormat()
+        {
+            var invalidBytes = new byte[] { 0x00, 0x01, 0x02 };
+            
+            using var form = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(invalidBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            form.Add(fileContent, "file", "invalid_format.txt");
+            
+            var response = await Client.PostAsync("/api/transcribe", form);
             Assert.IsTrue(response.IsSuccessStatusCode);
             
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
@@ -71,7 +123,7 @@ namespace IntegrationTests
             Assert.IsNotNull(result?.Error);
         }
         
-        [Test]
+        [OneTimeTearDown]
         public void TestCleanup_ShouldNotLeaveRunningProcesses()
         {
             // 这个测试应该在所有其他测试之后运行
