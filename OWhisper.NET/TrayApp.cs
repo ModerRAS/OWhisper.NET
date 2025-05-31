@@ -1,19 +1,26 @@
 using System;
 using System.Windows.Forms;
 using System.Drawing;
+using Velopack; // 添加Velopack引用
 
 namespace OWhisper.NET {
     public class TrayApp : ApplicationContext {
         private NotifyIcon trayIcon;
         private ContextMenuStrip trayMenu;
         private WhisperService whisperService;
+        private UpdateManager updateManager; // 添加更新管理器字段
         private Form1 debugForm;
 
-        public TrayApp() : this(null) {
+        public TrayApp() : this(null, null) {
         }
 
-        public TrayApp(WhisperService service) {
+        public TrayApp(WhisperService service) : this(service, null) {
+        }
+
+        // 添加支持UpdateManager的新构造函数
+        public TrayApp(WhisperService service, UpdateManager updateManager) {
             whisperService = service;
+            this.updateManager = updateManager;
             debugForm = new Form1();
 
             // 初始化托盘图标
@@ -28,6 +35,13 @@ namespace OWhisper.NET {
             trayMenu.Items.Add("启动服务", null, OnStartService);
             trayMenu.Items.Add("停止服务", null, OnStopService);
             trayMenu.Items.Add("-"); // 分隔线
+            
+            // 添加更新管理菜单项
+            trayMenu.Items.Add("检查更新", null, OnCheckUpdates);
+            trayMenu.Items.Add("下载更新", null, OnDownloadUpdates);
+            trayMenu.Items.Add("重启应用", null, OnRestartApply);
+            trayMenu.Items.Add("-"); // 分隔线
+            
             trayMenu.Items.Add("调试窗口", null, OnShowDebug);
             trayMenu.Items.Add("-"); // 分隔线
             trayMenu.Items.Add("退出", null, OnExit);
@@ -56,6 +70,29 @@ namespace OWhisper.NET {
         private void OnExit(object sender, EventArgs e) {
             trayIcon.Visible = false;
             Program.ExitApplication();
+        }
+        
+        // 更新管理功能
+        private void OnCheckUpdates(object sender, EventArgs e) {
+            _ = Program.CheckForUpdatesAsync();
+        }
+        
+        private async void OnDownloadUpdates(object sender, EventArgs e) {
+            if (Program._updateInfo != null) {
+                await Program.DownloadUpdatesAsync();
+            } else {
+                MessageBox.Show("请先检查更新", "提示",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+        
+        private void OnRestartApply(object sender, EventArgs e) {
+            if (Program._updateManager != null && Program._updateManager.UpdatePendingRestart != null) {
+                Program._updateManager.ApplyUpdatesAndRestart(Program._updateInfo);
+            } else {
+                MessageBox.Show("没有待应用的更新", "提示",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
 
         private bool _disposed = false;

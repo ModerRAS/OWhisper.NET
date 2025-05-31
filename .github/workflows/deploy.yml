@@ -1,0 +1,54 @@
+name: Build, Test and Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-and-deploy:
+    permissions: write-all
+    runs-on: windows-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Install .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+        
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+      
+    - name: Setup Velopack
+      uses: MinoruSekine/setup-scoop@v4.0.1
+      with:
+        apps: vpk
+        
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build
+      run: dotnet build --no-restore
+      
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
+      
+    - name: Publish Application
+      run: dotnet publish OWhisper.NET/OWhisper.NET.csproj -c Release -o publish -r win-x64 --self-contained false
+      
+    - name: Create and Upload Velopack Release
+      env:
+        BUILD_NUMBER: ${{github.run_number}}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        
+      shell: pwsh
+      run: |
+        $Version = Get-Date -Format "yyyy.M.$env:BUILD_NUMBER"
+        vpk download s3 --bucket $env:R2_BUCKET --endpoint $env:S3_ENDPOINT --keyId $env:R2_ACCESS_KEY_ID --secret $env:R2_SECRET_ACCESS_KEY
+        vpk pack -u OWhisper.NET --channel nightly-win-x64 -v $Version -p publish --framework net48
+        vpk upload s3 --bucket $env:R2_BUCKET --endpoint $env:S3_ENDPOINT --keyId $env:R2_ACCESS_KEY_ID --secret $env:R2_SECRET_ACCESS_KEY
