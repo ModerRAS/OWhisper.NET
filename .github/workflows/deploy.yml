@@ -45,6 +45,6 @@ jobs:
       run: |
         dotnet tool install -g vpk
         $Version = Get-Date -Format "yyyy.M.$env:BUILD_NUMBER"
-        vpk download s3 --channel nightly-win-x64 --remote-prefix OWhisper.NET --bucket $env:R2_BUCKET --endpoint $env:S3_ENDPOINT --keyId $env:R2_ACCESS_KEY_ID --secret $env:R2_SECRET_ACCESS_KEY
+        vpk download s3 --channel nightly-win-x64 --bucket $env:R2_BUCKET --endpoint $env:S3_ENDPOINT --keyId $env:R2_ACCESS_KEY_ID --secret $env:R2_SECRET_ACCESS_KEY
         vpk pack -u OWhisper.NET --channel nightly-win-x64 -v $Version -p publish --framework net48
-        vpk upload s3 --channel nightly-win-x64 --remote-prefix OWhisper.NET --bucket $env:R2_BUCKET --endpoint $env:S3_ENDPOINT --keyId $env:R2_ACCESS_KEY_ID --secret $env:R2_SECRET_ACCESS_KEY
+        vpk upload s3 --channel nightly-win-x64 --bucket $env:R2_BUCKET --endpoint $env:S3_ENDPOINT --keyId $env:R2_ACCESS_KEY_ID --secret $env:R2_SECRET_ACCESS_KEY
