@@ -47,7 +47,7 @@ namespace IntegrationTests {
             Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
         }
 
-        [Test]
+        [Test, Timeout(30000000)]
         public async Task Transcribe_ShouldProcessLargeAACAudioFile() {
             // 确保测试音频文件存在
             var audioFile = Path.Combine(TestResourcesDir, "large2-audio.aac");
@@ -72,7 +72,7 @@ namespace IntegrationTests {
             Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
         }
 
-        [Test]
+        [Test, Timeout(30000000)]
         public async Task Transcribe_ShouldProcessLarge3AACAudioFile() {
             // 确保测试音频文件存在
             var audioFile = Path.Combine(TestResourcesDir, "large3-audio.aac");
