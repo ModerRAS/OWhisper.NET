@@ -9,7 +9,7 @@ using Whisper.net.Ggml;
 
 namespace OWhisper.NET
 {
-    public sealed class WhisperService
+    public sealed class WhisperService : IDisposable
     {
         private static readonly Lazy<WhisperService> _instance = 
             new Lazy<WhisperService>(() => new WhisperService());
@@ -83,6 +83,8 @@ namespace OWhisper.NET
             return await whisperManager.Transcribe(audioData);
         }
 
+        private volatile bool _shouldStop = false;
+
         private void ServiceWorker()
         {
             _status = ServiceStatus.Running;
@@ -93,7 +95,7 @@ namespace OWhisper.NET
             
             try
             {
-                while (_status == ServiceStatus.Running)
+                while (!_shouldStop && _status == ServiceStatus.Running)
                 {
                     // 主服务循环
                     Thread.Sleep(100);
@@ -103,6 +105,24 @@ namespace OWhisper.NET
             {
                 whisperManager.Dispose();
             }
+        }
+
+        public void Dispose()
+        {
+            _shouldStop = true;
+            Stop();
+            
+            // 确保线程完全终止
+            if (_serviceThread != null && _serviceThread.IsAlive)
+            {
+                if (!_serviceThread.Join(2000)) // 等待2秒
+                {
+                    Console.WriteLine("警告: 服务线程未在超时时间内终止");
+                    try { _serviceThread.Interrupt(); } catch { }
+                }
+            }
+            
+            Console.WriteLine("WhisperService资源已释放");
         }
     }
 

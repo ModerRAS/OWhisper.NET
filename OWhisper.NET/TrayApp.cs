@@ -65,7 +65,7 @@ namespace OWhisper.NET
         private void OnExit(object sender, EventArgs e)
         {
             trayIcon.Visible = false;
-            Application.Exit();
+            Program.ExitApplication();
         }
 
         protected override void OnResize(EventArgs e)

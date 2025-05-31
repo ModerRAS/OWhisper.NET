@@ -20,10 +20,10 @@ namespace OWhisper.NET
                 using (var inputStream = new MemoryStream(audioData))
                 using (var outputStream = new MemoryStream())
                 {
-                    // 尝试自动检测格式并创建合适的读取器
-                    using (var reader = new WaveFileReader(inputStream) ?? 
+                    // 优先尝试MP3读取器，再尝试其他格式
+                    using (var reader = TryCreateMp3Reader(inputStream) ??
                            TryCreateMediaFoundationReader(inputStream) ??
-                           TryCreateMp3Reader(inputStream))
+                           new WaveFileReader(inputStream))
                     {
                         if (reader == null)
                         {

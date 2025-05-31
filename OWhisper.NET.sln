@@ -5,6 +5,8 @@ VisualStudioVersion = 17.14.36109.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OWhisper.NET", "OWhisper.NET\OWhisper.NET.csproj", "{0A0D903B-4EC6-420F-A607-CAABD4D47BD7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IntegrationTests", "IntegrationTests\IntegrationTests.csproj", "{59FDAA84-6701-32D0-9E5C-CA30D0B3B987}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{0A0D903B-4EC6-420F-A607-CAABD4D47BD7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0A0D903B-4EC6-420F-A607-CAABD4D47BD7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0A0D903B-4EC6-420F-A607-CAABD4D47BD7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{59FDAA84-6701-32D0-9E5C-CA30D0B3B987}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{59FDAA84-6701-32D0-9E5C-CA30D0B3B987}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{59FDAA84-6701-32D0-9E5C-CA30D0B3B987}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{59FDAA84-6701-32D0-9E5C-CA30D0B3B987}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
