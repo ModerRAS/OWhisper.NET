@@ -13,7 +13,9 @@ namespace OWhisper.NET
         private string _selectedAudioFile;
         private string _outputFilePath;
         private readonly HttpClient _httpClient;
-        private const string ApiBaseUrl = "http://localhost:9000";
+        
+        // 动态获取API基础URL
+        private string ApiBaseUrl => $"http://localhost:{Program.GetListenPort()}";
 
         public MainForm()
         {

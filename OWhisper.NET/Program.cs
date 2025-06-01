@@ -16,6 +16,41 @@ namespace OWhisper.NET {
         public static WebServer _webServer;
         public static UpdateManager _updateManager;
         public static UpdateInfo _updateInfo; // 改为public访问
+        
+        // 默认配置常量
+        public const string DEFAULT_HOST = "0.0.0.0";
+        public const int DEFAULT_PORT = 11899;
+
+        /// <summary>
+        /// 获取配置的监听地址
+        /// </summary>
+        public static string GetListenHost()
+        {
+            return Environment.GetEnvironmentVariable("OWHISPER_HOST") ?? DEFAULT_HOST;
+        }
+
+        /// <summary>
+        /// 获取配置的监听端口
+        /// </summary>
+        public static int GetListenPort()
+        {
+            var portStr = Environment.GetEnvironmentVariable("OWHISPER_PORT");
+            if (int.TryParse(portStr, out int port) && port > 0 && port <= 65535)
+            {
+                return port;
+            }
+            return DEFAULT_PORT;
+        }
+
+        /// <summary>
+        /// 获取完整的监听URL
+        /// </summary>
+        public static string GetListenUrl()
+        {
+            var host = GetListenHost();
+            var port = GetListenPort();
+            return $"http://{host}:{port}";
+        }
 
         /// <summary>
         /// 应用程序的主入口点
@@ -36,6 +71,7 @@ namespace OWhisper.NET {
                 Application.SetCompatibleTextRenderingDefault(false);
 
                 Log.Information("应用程序启动");
+                Log.Information("监听配置 - 地址: {Host}, 端口: {Port}", GetListenHost(), GetListenPort());
 
                 // 初始化Velopack更新管理器（非调试模式）
                 if (args.Length == 0 || args[0] != "--debug") {
@@ -66,7 +102,8 @@ namespace OWhisper.NET {
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-            public static string GetVersionInfo() {
+
+        public static string GetVersionInfo() {
             var sb = new StringBuilder();
             sb.AppendLine($"Velopack 版本: {VelopackRuntimeInfo.VelopackNugetVersion}");
             sb.AppendLine($"当前应用版本: {( _updateManager.IsInstalled ? _updateManager.CurrentVersion.ToFullString() : "(未安装)" )}");
@@ -84,7 +121,7 @@ namespace OWhisper.NET {
 
         private static void StartWebApiServer() {
             _webServer = new WebServer(o => o
-                .WithUrlPrefix("http://localhost:9000")
+                .WithUrlPrefix(GetListenUrl())
                 .WithMode(HttpListenerMode.EmbedIO))
                 .WithWebApi("/", m => m.WithController<WhisperController>())
                 .WithWebApi("/api", m => m.WithController<WhisperController>());
@@ -114,29 +151,29 @@ namespace OWhisper.NET {
                     await _updateManager.DownloadUpdatesAsync(_updateInfo);
                     Log.Information("更新下载完成，准备安装...");
                     _updateManager.ApplyUpdatesAndRestart(_updateInfo);
+                }
+            } catch (Exception ex) {
+                Log.Error(ex, "检查更新时出错");
+                MessageBox.Show($"检查更新失败: {ex.Message}", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-        } catch (Exception ex) {
-            Log.Error(ex, "检查更新时出错");
-            MessageBox.Show($"检查更新失败: {ex.Message}", "错误",
-                MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-    }
 
-    // 添加下载更新方法
-    public static async Task DownloadUpdatesAsync() {
-        try {
-            if (_updateInfo == null) return;
-            
-            Log.Information("开始下载更新...");
-            await _updateManager.DownloadUpdatesAsync(_updateInfo);
-            Log.Information("更新下载完成，准备安装...");
-            _updateManager.ApplyUpdatesAndRestart(_updateInfo);
-        } catch (Exception ex) {
-            Log.Error(ex, "下载更新时出错");
-            MessageBox.Show($"下载更新失败: {ex.Message}", "错误",
-                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        // 添加下载更新方法
+        public static async Task DownloadUpdatesAsync() {
+            try {
+                if (_updateInfo == null) return;
+                
+                Log.Information("开始下载更新...");
+                await _updateManager.DownloadUpdatesAsync(_updateInfo);
+                Log.Information("更新下载完成，准备安装...");
+                _updateManager.ApplyUpdatesAndRestart(_updateInfo);
+            } catch (Exception ex) {
+                Log.Error(ex, "下载更新时出错");
+                MessageBox.Show($"下载更新失败: {ex.Message}", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
-    }
 
         public static void ExitApplication() {
             try {
