@@ -5,6 +5,9 @@ using System.Windows.Forms;
 using System.Net.Http;
 using OWhisper.NET.Models;
 using Newtonsoft.Json.Linq;
+using System.Threading;
+using System.Text;
+using Newtonsoft.Json;
 
 namespace OWhisper.NET
 {
@@ -13,6 +16,8 @@ namespace OWhisper.NET
         private string _selectedAudioFile;
         private string _outputFilePath;
         private readonly HttpClient _httpClient;
+        private string _currentTaskId;
+        private CancellationTokenSource _sseCancellationToken;
         
         // 动态获取API基础URL
         private string ApiBaseUrl => $"http://localhost:{Program.GetListenPort()}";
@@ -40,8 +45,12 @@ namespace OWhisper.NET
             WindowState = FormWindowState.Minimized;
             ShowInTaskbar = false;
             
-            // 绑定Disposed事件来清理HttpClient
-            this.Disposed += (s, e) => _httpClient?.Dispose();
+            // 绑定Disposed事件来清理资源
+            this.Disposed += (s, e) => {
+                _httpClient?.Dispose();
+                _sseCancellationToken?.Cancel();
+                _sseCancellationToken?.Dispose();
+            };
         }
 
         /// <summary>
@@ -184,6 +193,7 @@ namespace OWhisper.NET
 
             btnProcess.Enabled = false;
             progressBar.Value = 0;
+            btnProcess.Text = "处理中...";
 
             try
             {
@@ -194,29 +204,15 @@ namespace OWhisper.NET
                 byte[] audioBytes = File.ReadAllBytes(_selectedAudioFile);
                 string fileName = Path.GetFileName(_selectedAudioFile);
 
-                // 调用API进行转写
-                var result = await CallTranscribeApi(audioBytes, fileName);
-
-                if (result != null)
+                // 提交转录任务
+                var taskResponse = await SubmitTranscribeTask(audioBytes, fileName);
+                if (taskResponse != null)
                 {
-                    // 根据文件扩展名保存不同格式
-                    string content;
-                    string extension = Path.GetExtension(_outputFilePath).ToLower();
+                    _currentTaskId = taskResponse.TaskId;
+                    btnProcess.Text = $"队列位置: {taskResponse.QueuePosition}";
                     
-                    if (extension == ".srt")
-                    {
-                        content = result.SrtContent;
-                    }
-                    else
-                    {
-                        content = result.Text;
-                    }
-                    
-                    // 保存转写结果
-                    File.WriteAllText(_outputFilePath, content, System.Text.Encoding.UTF8);
-
-                    MessageBox.Show($"处理完成！\n耗时: {result.ProcessingTime:F1}秒\n保存到: {_outputFilePath}", 
-                        "处理完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // 开始监听任务进度
+                    await MonitorTaskProgress(_currentTaskId);
                 }
             }
             catch (Exception ex)
@@ -228,6 +224,8 @@ namespace OWhisper.NET
             {
                 btnProcess.Enabled = true;
                 progressBar.Value = 0;
+                btnProcess.Text = "开始处理";
+                _currentTaskId = null;
             }
         }
 
@@ -235,7 +233,7 @@ namespace OWhisper.NET
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{ApiBaseUrl}/api/status");
+                var response = await _httpClient.GetAsync($"{ApiBaseUrl}/api/model/status");
                 if (!response.IsSuccessStatusCode)
                 {
                     throw new Exception($"API服务不可用，状态码: {response.StatusCode}");
@@ -247,7 +245,7 @@ namespace OWhisper.NET
             }
         }
 
-        private async Task<TranscriptionResult> CallTranscribeApi(byte[] audioData, string fileName)
+        private async Task<TaskCreationResponse> SubmitTranscribeTask(byte[] audioData, string fileName)
         {
             using (var form = new MultipartFormDataContent())
             {
@@ -280,24 +278,181 @@ namespace OWhisper.NET
                 if (response.IsSuccessStatusCode)
                 {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    return ParseTranscriptionResponse(responseContent);
+                    return ParseTaskCreationResponse(responseContent);
                 }
                 else
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    throw new Exception($"API调用失败: {response.StatusCode}\n{errorContent}");
+                    throw new Exception($"提交任务失败: {response.StatusCode}\n{errorContent}");
                 }
             }
         }
 
-        private TranscriptionResult ParseTranscriptionResponse(string jsonResponse)
+        private async Task MonitorTaskProgress(string taskId)
+        {
+            _sseCancellationToken = new CancellationTokenSource();
+            
+            try
+            {
+                using var client = new HttpClient();
+                client.Timeout = TimeSpan.FromMinutes(60); // 设置较长的超时时间
+                
+                var response = await client.GetAsync($"{ApiBaseUrl}/api/tasks/{taskId}/progress", 
+                    HttpCompletionOption.ResponseHeadersRead, _sseCancellationToken.Token);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new Exception($"无法连接到SSE服务: {response.StatusCode}");
+                }
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+
+                while (!_sseCancellationToken.Token.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync();
+                    if (line == null) break;
+
+                    if (line.StartsWith("data: "))
+                    {
+                        var jsonData = line.Substring(6);
+                        await ProcessProgressUpdate(jsonData);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 用户取消操作
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"监听任务进度失败: {ex.Message}");
+            }
+        }
+
+        private async Task ProcessProgressUpdate(string jsonData)
         {
             try
             {
-                // 使用Newtonsoft.Json解析响应
+                var progress = JsonConvert.DeserializeObject<TranscriptionProgress>(jsonData);
+                
+                // 更新UI (确保在UI线程中执行)
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() => UpdateProgressUI(progress)));
+                }
+                else
+                {
+                    UpdateProgressUI(progress);
+                }
+                
+                // 如果任务完成，处理结果
+                if (progress.Status == Models.TaskStatus.Completed && progress.Result != null)
+                {
+                    await HandleTaskCompletion(progress.Result);
+                }
+                else if (progress.Status == Models.TaskStatus.Failed)
+                {
+                    HandleTaskFailure(progress.ErrorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"处理进度更新失败: {ex.Message}");
+            }
+        }
+
+        private void UpdateProgressUI(TranscriptionProgress progress)
+        {
+            progressBar.Value = Math.Min(100, Math.Max(0, (int)progress.Progress));
+            
+            switch (progress.Status)
+            {
+                case Models.TaskStatus.Queued:
+                    btnProcess.Text = $"队列位置: {progress.QueuePosition}";
+                    break;
+                case Models.TaskStatus.Processing:
+                    btnProcess.Text = $"处理中... {progress.Progress:F1}%";
+                    break;
+                case Models.TaskStatus.Completed:
+                    btnProcess.Text = "处理完成";
+                    break;
+                case Models.TaskStatus.Failed:
+                    btnProcess.Text = "处理失败";
+                    break;
+                case Models.TaskStatus.Cancelled:
+                    btnProcess.Text = "已取消";
+                    break;
+            }
+        }
+
+        private async Task HandleTaskCompletion(TranscriptionResult result)
+        {
+            try
+            {
+                // 根据文件扩展名保存不同格式
+                string content;
+                string extension = Path.GetExtension(_outputFilePath).ToLower();
+                
+                if (extension == ".srt")
+                {
+                    content = result.SrtContent;
+                }
+                else
+                {
+                    content = result.Text;
+                }
+                
+                // 保存转写结果
+                File.WriteAllText(_outputFilePath, content, System.Text.Encoding.UTF8);
+
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() => {
+                        MessageBox.Show($"处理完成！\n耗时: {result.ProcessingTime:F1}秒\n保存到: {_outputFilePath}", 
+                            "处理完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }));
+                }
+                else
+                {
+                    MessageBox.Show($"处理完成！\n耗时: {result.ProcessingTime:F1}秒\n保存到: {_outputFilePath}", 
+                        "处理完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                
+                // 取消SSE连接
+                _sseCancellationToken?.Cancel();
+            }
+            catch (Exception ex)
+            {
+                HandleTaskFailure($"保存文件失败: {ex.Message}");
+            }
+        }
+
+        private void HandleTaskFailure(string errorMessage)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => {
+                    MessageBox.Show($"处理失败: {errorMessage}", "错误", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }));
+            }
+            else
+            {
+                MessageBox.Show($"处理失败: {errorMessage}", "错误", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            
+            // 取消SSE连接
+            _sseCancellationToken?.Cancel();
+        }
+
+        private TaskCreationResponse ParseTaskCreationResponse(string jsonResponse)
+        {
+            try
+            {
                 var jsonObject = JObject.Parse(jsonResponse);
                 
-                // 检查状态 - API使用大写字段名
                 var status = jsonObject["Status"]?.ToString();
                 if (status != "success")
                 {
@@ -306,23 +461,16 @@ namespace OWhisper.NET
                     throw new Exception($"API返回错误: {errorMessage}");
                 }
                 
-                // 提取数据 - API使用大写字段名
                 var data = jsonObject["Data"];
                 if (data == null)
                 {
                     throw new Exception("API响应中缺少数据字段");
                 }
                 
-                // 修复字段名：API返回的TranscriptionResult使用大写字段名
-                var text = data["Text"]?.ToString() ?? "";
-                var srtContent = data["SrtContent"]?.ToString() ?? "";
-                var processingTimeValue = data["ProcessingTime"]?.Value<double>() ?? 0.0;
-                
-                return new TranscriptionResult
+                return new TaskCreationResponse
                 {
-                    Text = text,
-                    SrtContent = srtContent,
-                    ProcessingTime = processingTimeValue
+                    TaskId = data["TaskId"]?.ToString(),
+                    QueuePosition = data["QueuePosition"]?.Value<int>() ?? 0
                 };
             }
             catch (Newtonsoft.Json.JsonException ex)

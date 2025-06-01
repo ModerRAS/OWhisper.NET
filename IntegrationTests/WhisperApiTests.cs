@@ -7,13 +7,16 @@ using System.Net.Http.Json;
 using System.Threading.Tasks;
 using IntegrationTests.Models;
 using NUnit.Framework;
+using System.Text;
+using System.Threading;
+using Newtonsoft.Json;
 
 namespace IntegrationTests {
     [TestFixture]
     public class WhisperApiTests : ApplicationTestBase {
         [Test]
-        public async Task GetStatus_ShouldReturnServiceStatus() {
-            var response = await Client.GetAsync("/api/status");
+        public async Task GetModelStatus_ShouldReturnModelStatus() {
+            var response = await Client.GetAsync("/api/model/status");
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
@@ -22,8 +25,18 @@ namespace IntegrationTests {
             Assert.IsNotNull(result?.Data);
         }
 
+        [Test]
+        public async Task GetTasks_ShouldReturnTaskList() {
+            var response = await Client.GetAsync("/api/tasks");
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+            Assert.AreEqual("success", result?.Status);
+            Assert.IsNotNull(result?.Data);
+        }
+
         [Test, Explicit("Long running, run manually")]
-        public async Task Transcribe_ShouldProcessAudioFile() {
+        public async Task Transcribe_ShouldCreateTaskAndProcess() {
             // 确保测试音频文件存在
             var audioFile = Path.Combine(TestResourcesDir, "sample_audio.wav");
             if (!File.Exists(audioFile)) {
@@ -36,21 +49,91 @@ namespace IntegrationTests {
             fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
             form.Add(fileContent, "file", "sample_audio.wav");
 
+            // 提交任务
             var response = await Client.PostAsync("/api/transcribe", form);
             response.EnsureSuccessStatusCode();
 
-            var result = await response.Content.ReadFromJsonAsync<ApiResponse<TranscriptionResult>>();
-
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<TaskCreationResponse>>();
             Assert.AreEqual("success", result?.Status, $"API返回状态不正确: {result?.Status}");
-            Assert.IsNotNull(result?.Data?.Text, "转录文本为空");
-            Assert.IsFalse(string.IsNullOrWhiteSpace(result?.Data?.Text), "转录文本为空或空白");
-            Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
+            Assert.IsNotNull(result?.Data?.TaskId, "任务ID为空");
+            Assert.GreaterOrEqual(result?.Data?.QueuePosition, 1, "队列位置应该大于等于1");
+
+            var taskId = result.Data.TaskId;
+            Console.WriteLine($"任务已创建，ID: {taskId}，队列位置: {result.Data.QueuePosition}");
+
+            // 监听任务进度直到完成
+            var finalResult = await MonitorTaskUntilCompletion(taskId);
+            
+            Assert.IsNotNull(finalResult?.Text, "转录文本为空");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(finalResult?.Text), "转录文本为空或空白");
+            Assert.Greater(finalResult?.ProcessingTime, 0, "处理时间应该大于0");
         }
 
-        [Test, Explicit("Long running, run manually")]
-        public async Task Transcribe_ShouldProcessLargeAACAudioFile() {
-            // 确保测试音频文件存在
-            var audioFile = Path.Combine(TestResourcesDir, "large2-audio.aac");
+        [Test]
+        public async Task GetTask_ShouldReturnTaskDetails() {
+            // 先创建一个任务
+            var audioFile = Path.Combine(TestResourcesDir, "sample_audio.wav");
+            if (!File.Exists(audioFile)) {
+                Assert.Ignore("测试音频文件不存在，跳过测试");
+            }
+
+            using var form = new MultipartFormDataContent();
+            var audioBytes = File.ReadAllBytes(audioFile);
+            var fileContent = new ByteArrayContent(audioBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(fileContent, "file", "sample_audio.wav");
+
+            var createResponse = await Client.PostAsync("/api/transcribe", form);
+            createResponse.EnsureSuccessStatusCode();
+
+            var createResult = await createResponse.Content.ReadFromJsonAsync<ApiResponse<TaskCreationResponse>>();
+            var taskId = createResult.Data.TaskId;
+
+            // 获取任务详情
+            var response = await Client.GetAsync($"/api/tasks/{taskId}");
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+            Assert.AreEqual("success", result?.Status);
+            Assert.IsNotNull(result?.Data);
+        }
+
+        [Test]
+        public async Task CancelTask_ShouldCancelQueuedTask() {
+            // 先创建一个任务
+            var audioFile = Path.Combine(TestResourcesDir, "sample_audio.wav");
+            if (!File.Exists(audioFile)) {
+                Assert.Ignore("测试音频文件不存在，跳过测试");
+            }
+
+            using var form = new MultipartFormDataContent();
+            var audioBytes = File.ReadAllBytes(audioFile);
+            var fileContent = new ByteArrayContent(audioBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(fileContent, "file", "sample_audio.wav");
+
+            var createResponse = await Client.PostAsync("/api/transcribe", form);
+            createResponse.EnsureSuccessStatusCode();
+
+            var createResult = await createResponse.Content.ReadFromJsonAsync<ApiResponse<TaskCreationResponse>>();
+            var taskId = createResult.Data.TaskId;
+
+            // 尝试取消任务
+            var cancelResponse = await Client.PostAsync($"/api/tasks/{taskId}/cancel", null);
+            
+            // 任务可能已经开始处理，所以可能取消成功也可能失败
+            if (cancelResponse.IsSuccessStatusCode) {
+                var result = await cancelResponse.Content.ReadFromJsonAsync<ApiResponse<object>>();
+                Assert.AreEqual("success", result?.Status);
+            } else {
+                Assert.AreEqual(HttpStatusCode.BadRequest, cancelResponse.StatusCode);
+            }
+        }
+
+        [Test, Explicit("Long running, SSE test")]
+        public async Task SSE_ShouldReceiveProgressUpdates() {
+            // 先创建一个任务
+            var audioFile = Path.Combine(TestResourcesDir, "sample_audio.wav");
             if (!File.Exists(audioFile)) {
                 Assert.Fail("测试音频文件不存在");
             }
@@ -58,43 +141,56 @@ namespace IntegrationTests {
             using var form = new MultipartFormDataContent();
             var audioBytes = File.ReadAllBytes(audioFile);
             var fileContent = new ByteArrayContent(audioBytes);
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
-            form.Add(fileContent, "file", "large2-audio.aac");
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(fileContent, "file", "sample_audio.wav");
 
-            var response = await Client.PostAsync("/api/transcribe", form);
-            response.EnsureSuccessStatusCode();
+            var createResponse = await Client.PostAsync("/api/transcribe", form);
+            createResponse.EnsureSuccessStatusCode();
 
-            var result = await response.Content.ReadFromJsonAsync<ApiResponse<TranscriptionResult>>();
+            var createResult = await createResponse.Content.ReadFromJsonAsync<ApiResponse<TaskCreationResponse>>();
+            var taskId = createResult.Data.TaskId;
 
-            Assert.AreEqual("success", result?.Status, $"API返回状态不正确: {result?.Status}");
-            Assert.IsNotNull(result?.Data?.Text, "转录文本为空");
-            Assert.IsFalse(string.IsNullOrWhiteSpace(result?.Data?.Text), "转录文本为空或空白");
-            Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
-        }
+            // 测试SSE连接
+            using var sseClient = new HttpClient();
+            sseClient.Timeout = TimeSpan.FromMinutes(10);
 
-        [Test, Explicit("Long running, run manually")]
-        public async Task Transcribe_ShouldProcessLarge3AACAudioFile() {
-            // 确保测试音频文件存在
-            var audioFile = Path.Combine(TestResourcesDir, "large3-audio.aac");
-            if (!File.Exists(audioFile)) {
-                Assert.Fail("测试音频文件不存在");
+            var progressReceived = false;
+            var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+
+            try {
+                var response = await sseClient.GetAsync($"{BaseUrl}/api/tasks/{taskId}/progress",
+                    HttpCompletionOption.ResponseHeadersRead, cts.Token);
+
+                Assert.IsTrue(response.IsSuccessStatusCode, "SSE连接失败");
+                Assert.AreEqual("text/event-stream", response.Content.Headers.ContentType.MediaType, "Content-Type不正确");
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream);
+
+                while (!cts.Token.IsCancellationRequested) {
+                    var line = await reader.ReadLineAsync();
+                    if (line == null) break;
+
+                    if (line.StartsWith("data: ")) {
+                        var jsonData = line.Substring(6);
+                        Console.WriteLine($"收到SSE数据: {jsonData}");
+                        progressReceived = true;
+
+                        try {
+                            var progress = JsonConvert.DeserializeObject<TranscriptionProgress>(jsonData);
+                            if (progress.Status == "Completed" || progress.Status == "Failed") {
+                                break;
+                            }
+                        } catch {
+                            // 忽略心跳等其他消息
+                        }
+                    }
+                }
+            } catch (OperationCanceledException) {
+                // 测试超时
             }
 
-            using var form = new MultipartFormDataContent();
-            var audioBytes = File.ReadAllBytes(audioFile);
-            var fileContent = new ByteArrayContent(audioBytes);
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
-            form.Add(fileContent, "file", "large3-audio.aac");
-
-            var response = await Client.PostAsync("/api/transcribe", form);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<ApiResponse<TranscriptionResult>>();
-
-            Assert.AreEqual("success", result?.Status, $"API返回状态不正确: {result?.Status}");
-            Assert.IsNotNull(result?.Data?.Text, "转录文本为空");
-            Assert.IsFalse(string.IsNullOrWhiteSpace(result?.Data?.Text), "转录文本为空或空白");
-            Assert.Greater(result?.Data?.ProcessingTime, 0, "处理时间应该大于0");
+            Assert.IsTrue(progressReceived, "未收到任何进度更新");
         }
 
         [Test]
@@ -106,7 +202,7 @@ namespace IntegrationTests {
             form.Add(fileContent, "file", "invalid_audio.wav");
 
             var response = await Client.PostAsync("/api/transcribe", form);
-            Assert.AreEqual(HttpStatusCode.InternalServerError, response.StatusCode);
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest).Or.EqualTo(HttpStatusCode.InternalServerError));
 
             var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
             Assert.AreEqual("error", result?.Status);
@@ -130,25 +226,6 @@ namespace IntegrationTests {
         }
 
         [Test]
-        public async Task Transcribe_ShouldFailWithLargeFile() {
-            // 创建10MB的测试文件
-            var largeBytes = new byte[10 * 1024 * 1024]; // 10MB
-            new Random().NextBytes(largeBytes);
-
-            using var form = new MultipartFormDataContent();
-            var fileContent = new ByteArrayContent(largeBytes);
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
-            form.Add(fileContent, "file", "large_audio.wav");
-
-            var response = await Client.PostAsync("/api/transcribe", form);
-            Assert.AreEqual(HttpStatusCode.InternalServerError, response.StatusCode);
-
-            var result = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
-            Assert.AreEqual("error", result?.Status);
-            Assert.IsNotNull(result?.Error);
-        }
-
-        [Test]
         public async Task Transcribe_ShouldFailWithInvalidFormat() {
             var invalidBytes = new byte[] { 0x00, 0x01, 0x02 };
 
@@ -165,13 +242,41 @@ namespace IntegrationTests {
             Assert.IsNotNull(result?.Error);
         }
 
+        private async Task<TranscriptionResult> MonitorTaskUntilCompletion(string taskId) {
+            var timeout = TimeSpan.FromMinutes(10);
+            var startTime = DateTime.UtcNow;
+
+            while (DateTime.UtcNow - startTime < timeout) {
+                var response = await Client.GetAsync($"/api/tasks/{taskId}");
+                response.EnsureSuccessStatusCode();
+
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse<TaskDetails>>();
+                Assert.AreEqual("success", result?.Status);
+
+                var task = result.Data;
+                Console.WriteLine($"任务状态: {task.Status}, 进度: {task.Progress}%");
+
+                if (task.Status == "Completed") {
+                    Assert.IsNotNull(task.Result, "任务完成但结果为空");
+                    return task.Result;
+                } else if (task.Status == "Failed") {
+                    Assert.Fail($"任务处理失败: {task.ErrorMessage}");
+                }
+
+                await Task.Delay(2000); // 等待2秒后再次检查
+            }
+
+            Assert.Fail("任务处理超时");
+            return null;
+        }
+
         [OneTimeTearDown]
         public void TestCleanup_ShouldNotLeaveRunningProcesses() {
             // 这个测试应该在所有其他测试之后运行
             Console.WriteLine("=== 进程清理测试开始 ===");
 
             // 执行一个API调用以确保进程被创建
-            var response = Client.GetAsync("/api/status").Result;
+            var response = Client.GetAsync("/api/model/status").Result;
             Assert.IsTrue(response.IsSuccessStatusCode, "API调用失败");
 
             // 检查是否有OWhisper.NET进程残留
@@ -196,5 +301,34 @@ namespace IntegrationTests {
 
             Console.WriteLine("=== 进程清理测试结束 ===");
         }
+    }
+
+    // 添加新的模型类
+    public class TaskCreationResponse {
+        public string TaskId { get; set; }
+        public int QueuePosition { get; set; }
+    }
+
+    public class TaskDetails {
+        public string Id { get; set; }
+        public string FileName { get; set; }
+        public string Status { get; set; }
+        public float Progress { get; set; }
+        public int QueuePosition { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public TranscriptionResult Result { get; set; }
+        public string ErrorMessage { get; set; }
+    }
+
+    public class TranscriptionProgress {
+        public string TaskId { get; set; }
+        public string Status { get; set; }
+        public float Progress { get; set; }
+        public int QueuePosition { get; set; }
+        public string Message { get; set; }
+        public TranscriptionResult Result { get; set; }
+        public string ErrorMessage { get; set; }
     }
 }

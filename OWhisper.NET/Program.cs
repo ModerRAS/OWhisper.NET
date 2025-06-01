@@ -123,8 +123,8 @@ namespace OWhisper.NET {
             _webServer = new WebServer(o => o
                 .WithUrlPrefix(GetListenUrl())
                 .WithMode(HttpListenerMode.EmbedIO))
-                .WithWebApi("/", m => m.WithController<WhisperController>())
-                .WithWebApi("/api", m => m.WithController<WhisperController>());
+                .WithWebApi("/", m => m.WithController<WhisperController>().WithController<SseController>())
+                .WithWebApi("/api", m => m.WithController<WhisperController>().WithController<SseController>());
 
             _webServer.Start();
         }

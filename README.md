@@ -93,56 +93,42 @@ export OWHISPER_PORT=11899
 3. **开始转写** - 点击"开始处理"按钮
 4. **等待完成** - 查看进度条，完成后自动保存
 
-## 📡 API 文档
+## 📡 API 接口
 
 ### 基础信息
+- **基础URL**: `http://localhost:11899`
+- **内容类型**: `application/json` (响应), `multipart/form-data` (文件上传)
+- **环境变量配置**: 支持 `OWHISPER_HOST` 和 `OWHISPER_PORT`
 
-- **基础URL**: `http://localhost:11899` (可通过环境变量配置)
-- **内容类型**: `application/json` (响应), `multipart/form-data` (上传)
-- **字符编码**: UTF-8
+### 📋 接口列表
 
-### 环境变量配置
+| 接口 | 方法 | 说明 | 类型 |
+|------|------|------|------|
+| `/api/model/status` | GET | 获取模型状态 | 状态查询 |
+| `/api/transcribe` | POST | 提交转录任务 | 任务提交 |
+| `/api/tasks` | GET | 获取所有任务列表 | 任务管理 |
+| `/api/tasks/{taskId}` | GET | 获取指定任务详情 | 任务查询 |
+| `/api/tasks/{taskId}/cancel` | POST | 取消指定任务 | 任务控制 |
+| `/api/tasks/{taskId}/progress` | GET | SSE实时进度监听 | 实时通信 |
+| `/api/queue/progress` | GET | SSE队列状态监听 | 实时通信 |
 
-| 环境变量 | 默认值 | 说明 |
-|---------|--------|------|
-| `OWHISPER_HOST` | `0.0.0.0` | 监听地址 |
-| `OWHISPER_PORT` | `11899` | 监听端口 |
+### 🎯 核心功能
 
-### 响应格式
+#### 1. 任务队列系统
+- ✅ **串行处理** - 多个任务按顺序执行，避免资源冲突
+- ✅ **队列管理** - 自动管理任务优先级和执行顺序
+- ✅ **状态追踪** - 实时跟踪任务状态变化
+- ✅ **任务取消** - 支持取消排队中的任务
 
-所有API响应都遵循统一格式：
+#### 2. Server-Sent Events (SSE)
+- ✅ **实时进度** - 通过SSE推送转录进度
+- ✅ **状态更新** - 实时接收任务状态变化
+- ✅ **队列监控** - 监听整个队列的状态
+- ✅ **心跳检测** - 保持连接活跃状态
 
-```json
-{
-  "Status": "success|error",
-  "Data": { /* 具体数据 */ },
-  "Error": "错误信息",
-  "ErrorCode": "错误代码"
-}
-```
+### 📝 接口详情
 
-### 接口列表
-
-#### 1. 获取服务状态
-
-```http
-GET /api/status
-```
-
-**响应示例:**
-```json
-{
-  "Status": "success",
-  "Data": {
-    "serviceStatus": "Running"
-  },
-  "Error": null,
-  "ErrorCode": null
-}
-```
-
-#### 2. 获取模型状态
-
+#### 获取模型状态
 ```http
 GET /api/model/status
 ```
@@ -150,53 +136,109 @@ GET /api/model/status
 **响应示例:**
 ```json
 {
-  "Status": "success",
-  "Data": {
+  "status": "success",
+  "data": {
     "exists": true,
     "valid": true,
-    "size": 1624555275,
+    "size": 1550000000,
     "path": "Models/ggml-large-v3-turbo.bin"
-  },
-  "Error": null,
-  "ErrorCode": null
+  }
 }
 ```
 
-#### 3. 音频转写
-
+#### 提交转录任务
 ```http
 POST /api/transcribe
 Content-Type: multipart/form-data
-```
 
-**请求参数:**
-- `file`: 音频文件 (支持 .mp3, .wav, .aac)
+file: [音频文件]
+```
 
 **响应示例:**
 ```json
 {
-  "Status": "success",
-  "Data": {
-    "Text": "这是转写的文本内容",
-    "SrtContent": "1\n00:00:00,000 --> 00:00:02,500\n这是转写的文本内容\n\n",
-    "ProcessingTime": 15.6
-  },
-  "Error": null,
-  "ErrorCode": null
+  "status": "success",
+  "data": {
+    "taskId": "abc123def456",
+    "queuePosition": 1
+  }
 }
 ```
 
-#### 4. 启动服务
-
+#### 获取任务详情
 ```http
-POST /api/start
+GET /api/tasks/{taskId}
 ```
 
-#### 5. 停止服务
-
-```http
-POST /api/stop
+**响应示例:**
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "abc123def456",
+    "fileName": "audio.mp3",
+    "status": "Completed",
+    "progress": 100.0,
+    "queuePosition": 0,
+    "createdAt": "2024-01-01T10:00:00Z",
+    "startedAt": "2024-01-01T10:01:00Z",
+    "completedAt": "2024-01-01T10:05:00Z",
+    "result": {
+      "text": "转录的文本内容",
+      "srtContent": "1\n00:00:00,000 --> 00:00:05,000\n转录的文本内容\n",
+      "processingTime": 240.5
+    },
+    "errorMessage": null
+  }
+}
 ```
+
+#### SSE实时进度监听
+```http
+GET /api/tasks/{taskId}/progress
+Accept: text/event-stream
+```
+
+**SSE事件流示例:**
+```
+event: progress
+data: {"taskId":"abc123","status":"Queued","progress":0,"queuePosition":2,"message":"队列中等待，位置: 2"}
+
+event: progress  
+data: {"taskId":"abc123","status":"Processing","progress":25.5,"queuePosition":0,"message":"正在处理... (25.5%)"}
+
+event: progress
+data: {"taskId":"abc123","status":"Completed","progress":100,"result":{"text":"转录结果","srtContent":"...","processingTime":180.2}}
+
+event: heartbeat
+data: {"timestamp":"2024-01-01T10:05:00Z"}
+```
+
+### 🔄 任务状态流程
+
+```mermaid
+graph TD
+    A[提交任务] --> B[Queued 排队中]
+    B --> C[Processing 处理中]
+    C --> D[Completed 已完成]
+    C --> E[Failed 失败]
+    B --> F[Cancelled 已取消]
+    
+    B -.-> G[可以取消]
+    C -.-> H[无法取消]
+    D -.-> I[获取结果]
+    E -.-> J[查看错误]
+```
+
+### 📊 任务状态说明
+
+| 状态 | 说明 | 可操作 |
+|------|------|--------|
+| `Queued` | 任务已提交，等待处理 | ✅ 可取消 |
+| `Processing` | 正在转录处理中 | ❌ 无法取消 |
+| `Completed` | 转录完成 | ✅ 获取结果 |
+| `Failed` | 处理失败 | ✅ 查看错误 |
+| `Cancelled` | 已被取消 | ❌ 无法恢复 |
 
 ## 💻 编程语言调用示例
 
@@ -209,6 +251,7 @@ POST /api/stop
 | **Python** | [`docs/examples/python/python_client.py`](docs/examples/python/python_client.py) | 完整版 ⭐ | 功能丰富的Python客户端，包含服务等待、状态检测、自动保存 |
 | **Node.js** | [`docs/examples/nodejs/nodejs_client.js`](docs/examples/nodejs/nodejs_client.js) | 完整版 ⭐ | 功能丰富的JavaScript客户端，包含完整项目结构 |
 | **C#** | [`docs/examples/csharp_client.cs`](docs/examples/csharp_client.cs) | 标准版 | .NET Framework/Core客户端示例 |
+| **C# SSE** | [`docs/examples/csharp_client_with_sse.cs`](docs/examples/csharp_client_with_sse.cs) | 高级版 ⭐ | 支持任务队列和SSE实时进度的C#客户端 |
 | **Java** | [`docs/examples/java_client.java`](docs/examples/java_client.java) | 标准版 | 使用OkHttp库的Java客户端 |
 | **PHP** | [`docs/examples/php_client.php`](docs/examples/php_client.php) | 标准版 | 使用cURL的PHP客户端 |
 | **Go** | [`docs/examples/go_client.go`](docs/examples/go_client.go) | 标准版 | 原生HTTP客户端的Go示例 |
@@ -223,6 +266,14 @@ POST /api/stop
 - ✅ **结果保存** - 自动保存TXT、SRT、JSON格式
 - ✅ **文件检测** - 自动查找音频文件
 - ✅ **项目结构** - 包含完整的依赖文件和配置
+
+#### 🚀 高级版客户端 (SSE支持)
+- ✅ **任务队列** - 支持多任务串行处理
+- ✅ **实时进度** - 通过SSE获取实时处理进度
+- ✅ **状态监听** - 实时监听任务状态变化
+- ✅ **任务管理** - 支持任务取消和状态查询
+- ✅ **队列监控** - 监听整个任务队列状态
+- ✅ **心跳检测** - 自动维护SSE连接
 
 #### 📋 标准版客户端
 - ✅ **环境变量配置** - 支持`OWHISPER_HOST`和`OWHISPER_PORT`环境变量

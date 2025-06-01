@@ -12,6 +12,7 @@ namespace IntegrationTests {
     public class ApplicationTestBase : IDisposable {
         protected HttpClient Client;
         protected string TestResourcesDir;
+        protected string BaseUrl => TestBaseUrl;
         private Process _appProcess;
         private readonly List<int> _processIds = new List<int>();
         
