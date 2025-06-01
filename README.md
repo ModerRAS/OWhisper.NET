@@ -46,7 +46,7 @@
 
 ## 🚀 快速开始
 
-### 1. [下载安装](http://velopack.miaostay.com/OWhisper.NET-nightly-win-x64-Setup.exe)
+### 1. [下载安装](https://velopack.miaostay.com/OWhisper.NET-nightly-win-x64-Setup.exe)
 ```bash
 # 克隆项目
 git clone https://github.com/ModerRAS/OWhisper.NET.git
