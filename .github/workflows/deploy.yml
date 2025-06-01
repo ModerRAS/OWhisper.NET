@@ -33,6 +33,123 @@ jobs:
     - name: Publish Application
       run: dotnet publish OWhisper.NET/OWhisper.NET.csproj -c Release -o publish -r win-x64 --self-contained false
       
+    - name: Clean Old Releases from R2
+      env:
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      shell: pwsh
+      run: |
+        # 安装AWS CLI工具（用于访问R2）
+        if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+          Write-Host "Installing AWS CLI..."
+          Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile "AWSCLIV2.msi"
+          Start-Process msiexec.exe -Wait -ArgumentList '/i AWSCLIV2.msi /quiet'
+          $env:PATH = "$env:PATH;C:\Program Files\Amazon\AWSCLIV2"
+        }
+
+        # 配置AWS CLI访问R2
+        aws configure set aws_access_key_id $env:R2_ACCESS_KEY_ID --profile r2
+        aws configure set aws_secret_access_key $env:R2_SECRET_ACCESS_KEY --profile r2
+        aws configure set region auto --profile r2
+
+        Write-Host "开始清理R2存储桶中的旧文件..."
+
+        # 获取所有文件列表
+        $allFiles = aws s3api list-objects-v2 --bucket $env:R2_BUCKET --endpoint-url $env:S3_ENDPOINT --profile r2 --query 'Contents[].{Key:Key,LastModified:LastModified}' --output json | ConvertFrom-Json
+
+        if (-not $allFiles) {
+          Write-Host "未找到任何文件，跳过清理步骤"
+          exit 0
+        }
+
+        # 分类文件
+        $fullPackages = @()
+        $deltaPackages = @()
+        $otherFiles = @()
+
+        foreach ($file in $allFiles) {
+          $fileName = $file.Key
+          $lastModified = [DateTime]::Parse($file.LastModified)
+          
+          if ($fileName -match "OWhisper\.NET-[\d\.]++-nightly-win-x64-full\.nupkg$") {
+            $fullPackages += @{
+              Key = $fileName
+              LastModified = $lastModified
+            }
+          }
+          elseif ($fileName -match "OWhisper\.NET-[\d\.]++-nightly-win-x64-delta\.nupkg$") {
+            $deltaPackages += @{
+              Key = $fileName
+              LastModified = $lastModified
+            }
+          }
+          else {
+            $otherFiles += @{
+              Key = $fileName
+              LastModified = $lastModified
+            }
+          }
+        }
+
+        Write-Host "找到 $($fullPackages.Count) 个完整包文件"
+        Write-Host "找到 $($deltaPackages.Count) 个增量包文件"
+        Write-Host "找到 $($otherFiles.Count) 个其他文件"
+
+        # 删除文件的函数
+        function Remove-S3File {
+          param($key)
+          try {
+            aws s3api delete-object --bucket $env:R2_BUCKET --key $key --endpoint-url $env:S3_ENDPOINT --profile r2
+            Write-Host "已删除: $key"
+          }
+          catch {
+            Write-Warning "删除文件失败: $key - $($_.Exception.Message)"
+          }
+        }
+
+        # 清理完整包：只保留最新的2个
+        if ($fullPackages.Count -gt 2) {
+          $sortedFullPackages = $fullPackages | Sort-Object LastModified -Descending
+          $packagesToDelete = $sortedFullPackages | Select-Object -Skip 2
+          
+          Write-Host "需要删除 $($packagesToDelete.Count) 个旧的完整包"
+          foreach ($package in $packagesToDelete) {
+            Remove-S3File $package.Key
+          }
+        }
+
+        # 清理增量包：保留最近一个月的
+        if ($deltaPackages.Count -gt 0) {
+          $oneMonthAgo = (Get-Date).AddDays(-365)
+          $recentDeltas = $deltaPackages | Where-Object { $_.LastModified -gt $oneMonthAgo }
+          $oldDeltas = $deltaPackages | Where-Object { $_.LastModified -le $oneMonthAgo }
+          
+          Write-Host "最近一年内的增量包: $($recentDeltas.Count) 个"
+          Write-Host "超过一年的增量包: $($oldDeltas.Count) 个"
+          
+          # 如果清理后会导致没有增量包剩下，至少保留最新的30个
+          if ($recentDeltas.Count -eq 0 -and $deltaPackages.Count -gt 30) {
+            $sortedDeltas = $deltaPackages | Sort-Object LastModified -Descending
+            $deltasToDelete = $sortedDeltas | Select-Object -Skip 30
+            
+            Write-Host "保留最新的30个增量包，删除 $($deltasToDelete.Count) 个旧的增量包"
+            foreach ($delta in $deltasToDelete) {
+              Remove-S3File $delta.Key
+            }
+          }
+          elseif ($oldDeltas.Count -gt 0) {
+            # 正常情况：删除超过一年的增量包
+            Write-Host "删除 $($oldDeltas.Count) 个超过一年的增量包"
+            foreach ($delta in $oldDeltas) {
+              Remove-S3File $delta.Key
+            }
+          }
+        }
+
+        Write-Host "清理完成"
+      
     - name: Create and Upload Velopack Release
       env:
         BUILD_NUMBER: ${{github.run_number}}
