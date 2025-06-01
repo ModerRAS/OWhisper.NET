@@ -1,4 +1,4 @@
-# OWhisper.NET 快速开始 (Cursor生成)
+# OWhisper.NET 快速开始
 
 ## 5分钟上手指南
 
@@ -8,6 +8,10 @@
 # 下载并解压到任意目录
 # 双击运行或命令行启动
 OWhisper.NET.exe --debug
+
+# 环境变量配置 (可选)
+$env:OWHISPER_HOST = "0.0.0.0"    # 监听地址
+$env:OWHISPER_PORT = "11899"      # 监听端口
 ```
 
 ### 2. 🎵 转写音频文件
@@ -22,7 +26,7 @@ OWhisper.NET.exe --debug
 **命令行API方式:**
 ```bash
 # Python 一行命令
-curl -X POST http://localhost:9000/api/transcribe -F "file=@audio.mp3"
+curl -X POST http://localhost:11899/api/transcribe -F "file=@audio.mp3"
 ```
 
 ### 3. 📄 常用格式示例
@@ -41,11 +45,17 @@ curl -X POST http://localhost:9000/api/transcribe -F "file=@audio.mp3"
 **Python集成:**
 ```python
 import requests
+import os
+
+# 支持环境变量配置
+host = os.environ.get('OWHISPER_HOST', 'localhost')
+port = os.environ.get('OWHISPER_PORT', '11899')
+base_url = f"http://{host}:{port}"
 
 # 转写文件
 with open('audio.mp3', 'rb') as f:
     response = requests.post(
-        'http://localhost:9000/api/transcribe',
+        f'{base_url}/api/transcribe',
         files={'file': f}
     )
 
@@ -62,7 +72,7 @@ if result['Status'] == 'success':
 | 问题 | 解决方案 |
 |------|---------|
 | 首次启动很慢 | 正在下载模型，请等待 |
-| API连接失败 | 确保应用已启动且端口9000未被占用 |
+| API连接失败 | 确保应用已启动且端口11899未被占用 |
 | 音频格式错误 | 使用MP3、WAV或AAC格式 |
 | 内存不足 | 处理大文件需要4GB+内存 |
 

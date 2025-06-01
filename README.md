@@ -34,6 +34,7 @@
 - **多端支持**: 支持各种编程语言调用
 - **状态监控**: 服务状态实时查询
 - **错误处理**: 完善的错误信息返回
+- **环境变量**: 支持OWHISPER_HOST、OWHISPER_PORT配置
 
 ## 📋 系统要求
 
@@ -69,7 +70,23 @@ OWhisper.NET.exe --debug
 OWhisper.NET.exe --api-only
 ```
 
-### 3. 使用图形界面
+### 3. 环境变量配置
+
+```bash
+# Windows PowerShell
+$env:OWHISPER_HOST = "0.0.0.0"     # 监听地址 (默认: 0.0.0.0)
+$env:OWHISPER_PORT = "11899"       # 监听端口 (默认: 11899)
+
+# Windows CMD
+set OWHISPER_HOST=0.0.0.0
+set OWHISPER_PORT=11899
+
+# Linux/macOS
+export OWHISPER_HOST=0.0.0.0
+export OWHISPER_PORT=11899
+```
+
+### 4. 使用图形界面
 
 1. **选择音频文件** - 点击"选择文件"按钮
 2. **设置输出位置** - 点击"另存为"选择保存位置和格式
@@ -80,9 +97,16 @@ OWhisper.NET.exe --api-only
 
 ### 基础信息
 
-- **基础URL**: `http://localhost:9000`
+- **基础URL**: `http://localhost:11899` (可通过环境变量配置)
 - **内容类型**: `application/json` (响应), `multipart/form-data` (上传)
 - **字符编码**: UTF-8
+
+### 环境变量配置
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `OWHISPER_HOST` | `0.0.0.0` | 监听地址 |
+| `OWHISPER_PORT` | `11899` | 监听端口 |
 
 ### 响应格式
 
@@ -181,9 +205,16 @@ POST /api/stop
 ```python
 import requests
 import json
+import os
 
 class OWhisperClient:
-    def __init__(self, base_url="http://localhost:9000"):
+    def __init__(self, base_url=None):
+        # 支持环境变量配置
+        if base_url is None:
+            host = os.environ.get('OWHISPER_HOST', 'localhost')
+            port = os.environ.get('OWHISPER_PORT', '11899')
+            base_url = f"http://{host}:{port}"
+        
         self.base_url = base_url
     
     def get_status(self):
@@ -244,7 +275,14 @@ const FormData = require('form-data');
 const axios = require('axios');
 
 class OWhisperClient {
-    constructor(baseUrl = 'http://localhost:9000') {
+    constructor(baseUrl = null) {
+        // 支持环境变量配置
+        if (baseUrl === null) {
+            const host = process.env.OWHISPER_HOST || 'localhost';
+            const port = process.env.OWHISPER_PORT || '11899';
+            baseUrl = `http://${host}:${port}`;
+        }
+        
         this.baseUrl = baseUrl;
         this.client = axios.create({
             timeout: 1800000 // 30分钟超时
@@ -346,8 +384,16 @@ public class OWhisperClient : IDisposable
     private readonly HttpClient _httpClient;
     private readonly string _baseUrl;
 
-    public OWhisperClient(string baseUrl = "http://localhost:9000")
+    public OWhisperClient(string baseUrl = null)
     {
+        // 支持环境变量配置
+        if (baseUrl == null)
+        {
+            var host = Environment.GetEnvironmentVariable("OWHISPER_HOST") ?? "localhost";
+            var port = Environment.GetEnvironmentVariable("OWHISPER_PORT") ?? "11899";
+            baseUrl = $"http://{host}:{port}";
+        }
+        
         _baseUrl = baseUrl;
         _httpClient = new HttpClient
         {
@@ -470,7 +516,14 @@ public class OWhisperClient {
     private final Gson gson;
 
     public OWhisperClient(String baseUrl) {
-        this.baseUrl = baseUrl != null ? baseUrl : "http://localhost:9000";
+        // 支持环境变量配置
+        if (baseUrl == null) {
+            String host = System.getenv().getOrDefault("OWHISPER_HOST", "localhost");
+            String port = System.getenv().getOrDefault("OWHISPER_PORT", "11899");
+            baseUrl = String.format("http://%s:%s", host, port);
+        }
+        
+        this.baseUrl = baseUrl;
         this.client = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.MINUTES)
@@ -527,7 +580,7 @@ public class OWhisperClient {
 
     // 使用示例
     public static void main(String[] args) {
-        OWhisperClient client = new OWhisperClient("http://localhost:9000");
+        OWhisperClient client = new OWhisperClient(null);
 
         try {
             // 检查服务状态
@@ -566,7 +619,14 @@ class OWhisperClient {
     private $baseUrl;
     private $timeout;
 
-    public function __construct($baseUrl = 'http://localhost:9000', $timeout = 1800) {
+    public function __construct($baseUrl = null, $timeout = 1800) {
+        // 支持环境变量配置
+        if ($baseUrl === null) {
+            $host = $_ENV['OWHISPER_HOST'] ?? 'localhost';
+            $port = $_ENV['OWHISPER_PORT'] ?? '11899';
+            $baseUrl = "http://{$host}:{$port}";
+        }
+        
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->timeout = $timeout;
     }
@@ -693,8 +753,17 @@ type TranscriptionResult struct {
 }
 
 func NewOWhisperClient(baseURL string) *OWhisperClient {
+    // 支持环境变量配置
     if baseURL == "" {
-        baseURL = "http://localhost:9000"
+        host := os.Getenv("OWHISPER_HOST")
+        if host == "" {
+            host = "localhost"
+        }
+        port := os.Getenv("OWHISPER_PORT")
+        if port == "" {
+            port = "11899"
+        }
+        baseURL = fmt.Sprintf("http://%s:%s", host, port)
     }
     
     return &OWhisperClient{
@@ -815,8 +884,11 @@ func main() {
 ### 环境变量
 
 ```bash
-# API服务端口 (默认: 9000)
-OWHISPER_PORT=9000
+# 监听地址 (默认: 0.0.0.0)
+OWHISPER_HOST=0.0.0.0
+
+# API服务端口 (默认: 11899)
+OWHISPER_PORT=11899
 
 # 模型下载代理 (可选)
 HTTP_PROXY=http://proxy.example.com:8080
@@ -836,7 +908,8 @@ HTTPS_PROXY=http://proxy.example.com:8080
     "Language": "auto"
   },
   "Api": {
-    "Port": 9000,
+    "Host": "0.0.0.0",
+    "Port": 11899,
     "AllowedOrigins": ["*"],
     "MaxFileSize": 524288000
   },
@@ -862,12 +935,12 @@ HTTPS_PROXY=http://proxy.example.com:8080
 
 #### 2. API服务无法启动
 ```
-错误: 端口 9000 已被占用
+错误: 端口 11899 已被占用
 ```
 **解决方案:**
-- 修改端口配置
+- 使用环境变量修改端口: `$env:OWHISPER_PORT="12000"`
 - 终止占用端口的进程
-- 使用 `netstat -an | findstr 9000` 查看端口占用
+- 使用 `netstat -an | findstr 11899` 查看端口占用
 
 #### 3. 音频格式不支持
 ```
