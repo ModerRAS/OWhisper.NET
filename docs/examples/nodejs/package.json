@@ -2,24 +2,25 @@
   "name": "owhisper-nodejs-client",
   "version": "1.0.0",
   "description": "OWhisper.NET Node.js客户端示例",
-  "main": "client.js",
+  "main": "nodejs_client.js",
   "scripts": {
-    "start": "node client.js",
+    "start": "node nodejs_client.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "whisper",
+    "transcription",
+    "audio",
+    "speech-to-text",
+    "owhisper"
+  ],
+  "author": "ModerRAS",
+  "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0",
     "form-data": "^4.0.0"
   },
   "engines": {
     "node": ">=14.0.0"
-  },
-  "keywords": [
-    "whisper",
-    "speech-to-text",
-    "audio",
-    "transcription"
-  ],
-  "author": "OWhisper.NET",
-  "license": "MIT"
+  }
 } 

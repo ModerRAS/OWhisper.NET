@@ -50,7 +50,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/OWhisper.NET.git
+git clone https://github.com/ModerRAS/OWhisper.NET.git
 cd OWhisper.NET
 
 # 编译项目
@@ -208,8 +208,6 @@ POST /api/stop
 |------|------|------|------|
 | **Python** | [`docs/examples/python/python_client.py`](docs/examples/python/python_client.py) | 完整版 ⭐ | 功能丰富的Python客户端，包含服务等待、状态检测、自动保存 |
 | **Node.js** | [`docs/examples/nodejs/nodejs_client.js`](docs/examples/nodejs/nodejs_client.js) | 完整版 ⭐ | 功能丰富的JavaScript客户端，包含完整项目结构 |
-| **Python** | [`docs/examples/python_client.py`](docs/examples/python_client.py) | 简化版 | 简单易用的Python客户端示例 |
-| **Node.js** | [`docs/examples/nodejs_client.js`](docs/examples/nodejs_client.js) | 简化版 | 简单易用的JavaScript客户端示例 |
 | **C#** | [`docs/examples/csharp_client.cs`](docs/examples/csharp_client.cs) | 标准版 | .NET Framework/Core客户端示例 |
 | **Java** | [`docs/examples/java_client.java`](docs/examples/java_client.java) | 标准版 | 使用OkHttp库的Java客户端 |
 | **PHP** | [`docs/examples/php_client.php`](docs/examples/php_client.php) | 标准版 | 使用cURL的PHP客户端 |
@@ -226,7 +224,7 @@ POST /api/stop
 - ✅ **文件检测** - 自动查找音频文件
 - ✅ **项目结构** - 包含完整的依赖文件和配置
 
-#### 📋 其他客户端
+#### 📋 标准版客户端
 - ✅ **环境变量配置** - 支持`OWHISPER_HOST`和`OWHISPER_PORT`环境变量
 - ✅ **默认值回退** - 未设置环境变量时自动使用默认配置
 - ✅ **多种音频格式** - 自动检测MP3、WAV、AAC格式
@@ -238,7 +236,7 @@ POST /api/stop
 1. **查看完整示例** - 访问 [`docs/examples/`](docs/examples/) 目录
 2. **选择客户端类型**:
    - **完整版** (Python/Node.js) - 功能丰富，适合生产环境
-   - **简化版** - 代码简洁，适合快速集成
+   - **标准版** - 代码简洁，适合快速集成
 3. **安装依赖** - 按照各语言的说明安装必要的第三方库
 4. **配置环境** - 设置环境变量或直接修改代码中的服务地址
 5. **运行示例** - 使用你的音频文件测试转写功能
@@ -369,7 +367,7 @@ Select-String -Path "Logs\*.txt" -Pattern "ERROR|FATAL"
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/OWhisper.NET.git
+git clone https://github.com/ModerRAS/OWhisper.NET.git
 
 # 安装依赖
 dotnet restore
@@ -404,6 +402,6 @@ dotnet publish -c Release
 
 **如果这个项目对你有帮助，请给一个 ⭐️**
 
-[报告问题](https://github.com/your-username/OWhisper.NET/issues) · [功能请求](https://github.com/your-username/OWhisper.NET/issues) · [贡献代码](https://github.com/your-username/OWhisper.NET/pulls)
+[报告问题](https://github.com/ModerRAS/OWhisper.NET/issues) · [功能请求](https://github.com/ModerRAS/OWhisper.NET/issues) · [贡献代码](https://github.com/ModerRAS/OWhisper.NET/pulls)
 
 </div>
