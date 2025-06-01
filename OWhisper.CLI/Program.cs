@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace OWhisper.CLI;
 
-class Program
+public class Program
 {
     static async Task Main(string[] args)
     {
@@ -40,7 +40,7 @@ class Program
         }
     }
 
-    static IHostBuilder CreateHostBuilder(string[] args) =>
+    public static IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
             .UseSerilog()
             .ConfigureServices((context, services) =>
@@ -71,9 +71,9 @@ public class WebServerHostedService : BackgroundService
         IPlatformPathService pathService,
         IConfiguration configuration)
     {
-        _logger = logger;
-        _pathService = pathService;
-        _configuration = configuration;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _pathService = pathService ?? throw new ArgumentNullException(nameof(pathService));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

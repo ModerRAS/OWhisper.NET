@@ -21,7 +21,7 @@ namespace OWhisper.Core.Services
 
         private readonly ConcurrentDictionary<string, TranscriptionTask> _tasks = new ConcurrentDictionary<string, TranscriptionTask>();
         private readonly ConcurrentQueue<string> _taskQueue = new ConcurrentQueue<string>();
-        private readonly CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
+        private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
         private readonly SemaphoreSlim _processingLock = new SemaphoreSlim(1, 1);
         private Task _processingTask;
         private bool _isRunning = false;
@@ -32,6 +32,13 @@ namespace OWhisper.Core.Services
 
         public string EnqueueTask(byte[] audioData, string fileName, string language = null, string model = null)
         {
+            // 参数验证
+            if (audioData == null)
+                throw new ArgumentNullException(nameof(audioData));
+            
+            if (string.IsNullOrEmpty(fileName))
+                throw new ArgumentException("文件名不能为空", nameof(fileName));
+
             var task = new TranscriptionTask
             {
                 Id = Guid.NewGuid().ToString(),
@@ -91,6 +98,18 @@ namespace OWhisper.Core.Services
         {
             if (_isRunning) return;
 
+            // 始终重新创建CancellationTokenSource以避免任何状态问题
+            try
+            {
+                _cancellationTokenSource?.Dispose();
+            }
+            catch (ObjectDisposedException)
+            {
+                // 忽略已释放的异常
+            }
+            
+            _cancellationTokenSource = new CancellationTokenSource();
+
             _isRunning = true;
             _processingTask = Task.Run(ProcessQueueAsync, _cancellationTokenSource.Token);
             Log.Information("转录队列服务已启动");
@@ -101,15 +120,19 @@ namespace OWhisper.Core.Services
             if (!_isRunning) return;
 
             _isRunning = false;
-            _cancellationTokenSource.Cancel();
             
             try
             {
+                _cancellationTokenSource?.Cancel();
                 _processingTask?.Wait(TimeSpan.FromSeconds(5));
             }
             catch (AggregateException ex) when (ex.InnerException is OperationCanceledException)
             {
                 // 忽略取消异常
+            }
+            catch (ObjectDisposedException)
+            {
+                // 忽略已释放的异常
             }
 
             Log.Information("转录队列服务已停止");
