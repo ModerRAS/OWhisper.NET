@@ -10,7 +10,14 @@ const FormData = require('form-data');
 const axios = require('axios');
 
 class OWhisperClient {
-    constructor(baseUrl = 'http://localhost:9000') {
+    constructor(baseUrl = null) {
+        // 支持环境变量配置
+        if (baseUrl === null) {
+            const host = process.env.OWHISPER_HOST || 'localhost';
+            const port = process.env.OWHISPER_PORT || '11899';
+            baseUrl = `http://${host}:${port}`;
+        }
+        
         this.baseUrl = baseUrl;
         this.client = axios.create({
             timeout: 1800000 // 30分钟超时
@@ -18,7 +25,7 @@ class OWhisperClient {
     }
 
     async waitForService(timeout = 60000) {
-        console.log('等待OWhisper.NET服务启动...');
+        console.log(`等待OWhisper.NET服务启动... (${this.baseUrl})`);
         const startTime = Date.now();
 
         while (Date.now() - startTime < timeout) {
@@ -133,11 +140,18 @@ class OWhisperClient {
 }
 
 async function main() {
+    // 显示配置信息
+    const host = process.env.OWHISPER_HOST || 'localhost';
+    const port = process.env.OWHISPER_PORT || '11899';
+    console.log(`🔧 连接配置: ${host}:${port}`);
+    console.log(`💡 可通过环境变量配置: OWHISPER_HOST, OWHISPER_PORT`);
+    
     const client = new OWhisperClient();
 
     // 等待服务启动
     if (!(await client.waitForService())) {
         console.log('无法连接到OWhisper.NET服务，请确保应用已启动');
+        console.log('启动命令: OWhisper.NET.exe --debug');
         return;
     }
 

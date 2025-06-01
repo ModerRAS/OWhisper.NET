@@ -139,10 +139,10 @@ if (result) {
 ### 连接失败
 ```bash
 # 检查服务是否启动
-curl http://localhost:9000/api/status
+curl http://localhost:11899/api/status
 
 # 检查端口是否被占用
-netstat -an | findstr 9000
+netstat -an | findstr 11899
 ```
 
 ### 转写失败
