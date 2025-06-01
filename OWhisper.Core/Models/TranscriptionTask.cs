@@ -12,7 +12,7 @@ namespace OWhisper.Core.Models
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         public DateTime? StartedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
-        public TaskStatus Status { get; set; } = TaskStatus.Queued;
+        public TaskStatus Status { get; set; }
         public float Progress { get; set; } = 0;
         public int QueuePosition { get; set; }
         public TranscriptionResult? Result { get; set; }
@@ -21,6 +21,7 @@ namespace OWhisper.Core.Models
 
     public enum TaskStatus
     {
+        Unknown,
         Queued,
         Processing,
         Completed,

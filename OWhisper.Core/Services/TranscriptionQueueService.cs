@@ -21,6 +21,7 @@ namespace OWhisper.Core.Services
 
         private readonly ConcurrentDictionary<string, TranscriptionTask> _tasks = new ConcurrentDictionary<string, TranscriptionTask>();
         private readonly ConcurrentQueue<string> _taskQueue = new ConcurrentQueue<string>();
+        private readonly ConcurrentDictionary<string, byte[]> _audioDataCache = new ConcurrentDictionary<string, byte[]>();
         private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
         private readonly SemaphoreSlim _processingLock = new SemaphoreSlim(1, 1);
         private Task _processingTask;
@@ -49,8 +50,8 @@ namespace OWhisper.Core.Services
                 Status = TaskStatus.Queued
             };
 
-            // 存储音频数据（简化处理，实际可能需要临时文件）
-            task.FilePath = $"temp_{task.Id}";
+            // 存储音频数据到缓存
+            _audioDataCache[task.Id] = audioData;
 
             _tasks[task.Id] = task;
             _taskQueue.Enqueue(task.Id);
@@ -184,28 +185,57 @@ namespace OWhisper.Core.Services
 
                 Log.Information("开始处理任务: {TaskId}", task.Id);
 
-                // 这里应该调用实际的转录逻辑
-                // 为了示例，我们创建一个模拟的转录结果
-                await Task.Delay(2000); // 模拟处理时间
-
-                task.Progress = 50;
-                OnProgressUpdated(task);
-
-                await Task.Delay(2000); // 继续模拟处理
-
-                task.Result = new TranscriptionResult
+                // 获取缓存的音频数据
+                if (!_audioDataCache.TryGetValue(task.Id, out var audioData))
                 {
-                    Success = true,
-                    Text = $"模拟转录结果: {task.FileName}",
-                    FileName = task.FileName,
-                    ProcessingTime = (DateTime.Now - task.StartedAt.Value).TotalSeconds
+                    throw new Exception("未找到音频数据");
+                }
+
+                // 使用实际的Whisper转录服务
+                var whisperService = WhisperService.Instance;
+                
+                // 订阅进度事件
+                EventHandler<float> progressHandler = (sender, progress) =>
+                {
+                    task.Progress = progress;
+                    OnProgressUpdated(task);
                 };
 
-                task.Status = TaskStatus.Completed;
-                task.Progress = 100;
-                task.CompletedAt = DateTime.Now;
+                whisperService.ProgressChanged += progressHandler;
 
-                Log.Information("任务处理完成: {TaskId}", task.Id);
+                try
+                {
+                    Log.Information("开始转录音频，大小: {Size}字节", audioData.Length);
+                    var result = await whisperService.Transcribe(audioData);
+                    
+                    if (result == null)
+                    {
+                        throw new Exception("转录结果为空");
+                    }
+                    
+                    task.Result = result;
+                    task.Status = TaskStatus.Completed;
+                    task.Progress = 100;
+                    task.CompletedAt = DateTime.Now;
+
+                    Log.Information("任务处理完成: {TaskId}, 转录文本长度: {TextLength}", task.Id, result.Text?.Length ?? 0);
+                }
+                catch (AudioProcessingException ex)
+                {
+                    Log.Error(ex, "音频处理失败: {ErrorCode} - {Message}", ex.ErrorCode, ex.Message);
+                    throw new Exception($"音频处理失败: {ex.Message}", ex);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Whisper转录失败");
+                    throw new Exception($"转录失败: {ex.Message}", ex);
+                }
+                finally
+                {
+                    whisperService.ProgressChanged -= progressHandler;
+                    // 清理音频数据缓存
+                    _audioDataCache.TryRemove(task.Id, out _);
+                }
             }
             catch (Exception ex)
             {
@@ -214,6 +244,9 @@ namespace OWhisper.Core.Services
                 task.Status = TaskStatus.Failed;
                 task.ErrorMessage = ex.Message;
                 task.CompletedAt = DateTime.Now;
+                
+                // 清理音频数据缓存
+                _audioDataCache.TryRemove(task.Id, out _);
             }
             finally
             {

@@ -8,19 +8,19 @@ namespace OWhisper.NET {
     public class TrayApp : ApplicationContext {
         private NotifyIcon trayIcon;
         private ContextMenuStrip trayMenu;
-        private WhisperService whisperService;
+        private IWebApiService webApiService;
         private UpdateManager updateManager; // 添加更新管理器字段
         private MainForm debugForm;
 
         public TrayApp() : this(null, null) {
         }
 
-        public TrayApp(WhisperService service) : this(service, null) {
+        public TrayApp(IWebApiService service) : this(service, null) {
         }
 
         // 添加支持UpdateManager的新构造函数
-        public TrayApp(WhisperService service, UpdateManager updateManager) {
-            whisperService = service;
+        public TrayApp(IWebApiService service, UpdateManager updateManager) {
+            webApiService = service;
             this.updateManager = updateManager;
             debugForm = new MainForm();
 
@@ -49,19 +49,36 @@ namespace OWhisper.NET {
 
             trayIcon.ContextMenuStrip = trayMenu;
             trayIcon.DoubleClick += (s, e) => OnShowDebug(s, e);
-
-            // 初始化服务控制器
-            whisperService = WhisperService.Instance;
         }
 
-        private void OnStartService(object sender, EventArgs e) {
-            whisperService.Start();
-            trayIcon.ShowBalloonTip(1000, "服务状态", "服务已启动", ToolTipIcon.Info);
+        private async void OnStartService(object sender, EventArgs e) {
+            if (webApiService == null || webApiService.IsRunning) {
+                trayIcon.ShowBalloonTip(1000, "服务状态", "服务已在运行中", ToolTipIcon.Warning);
+                return;
+            }
+            
+            try {
+                await webApiService.StartAsync();
+                trayIcon.ShowBalloonTip(1000, "服务状态", "服务已启动", ToolTipIcon.Info);
+            } catch (Exception ex) {
+                MessageBox.Show($"启动服务失败: {ex.Message}", "错误", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        private void OnStopService(object sender, EventArgs e) {
-            whisperService.Stop();
-            trayIcon.ShowBalloonTip(1000, "服务状态", "服务已停止", ToolTipIcon.Info);
+        private async void OnStopService(object sender, EventArgs e) {
+            if (webApiService == null || !webApiService.IsRunning) {
+                trayIcon.ShowBalloonTip(1000, "服务状态", "服务未运行", ToolTipIcon.Warning);
+                return;
+            }
+            
+            try {
+                await webApiService.StopAsync();
+                trayIcon.ShowBalloonTip(1000, "服务状态", "服务已停止", ToolTipIcon.Info);
+            } catch (Exception ex) {
+                MessageBox.Show($"停止服务失败: {ex.Message}", "错误", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void OnShowDebug(object sender, EventArgs e) {
@@ -108,9 +125,9 @@ namespace OWhisper.NET {
                     trayMenu?.Dispose();
 
                     // 清理服务实例
-                    if (whisperService != null) {
-                        whisperService.Dispose();
-                        whisperService = null;
+                    if (webApiService != null) {
+                        webApiService.Dispose();
+                        webApiService = null;
                     }
 
                     // 释放调试窗口

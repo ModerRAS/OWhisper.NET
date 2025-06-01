@@ -41,6 +41,9 @@ namespace OWhisper.Core.Controllers
             var responseStream = HttpContext.Response.OutputStream;
             var cancellationToken = HttpContext.CancellationToken;
 
+            // 添加状态缓存以避免重复发送
+            TranscriptionProgress lastSentProgress = null;
+
             try
             {
                 Log.Information("SSE连接建立: TaskId={TaskId}", taskId);
@@ -52,8 +55,8 @@ namespace OWhisper.Core.Controllers
                     return;
                 }
 
-                // 发送初始状态
-                await SendTaskProgress(responseStream, task);
+                // 发送初始状态并缓存
+                lastSentProgress = await SendTaskProgressWithCache(responseStream, task, lastSentProgress);
 
                 // 如果任务已完成，直接返回
                 if (task.Status == TaskStatus.Completed ||
@@ -64,15 +67,13 @@ namespace OWhisper.Core.Controllers
                 }
 
                 // 订阅进度更新事件
-                var progressReceived = false;
                 EventHandler<TranscriptionTask> progressHandler = async (sender, progress) =>
                 {
                     if (progress.Id == taskId && !cancellationToken.IsCancellationRequested)
                     {
                         try
                         {
-                            await SendTaskProgress(responseStream, progress);
-                            progressReceived = true;
+                            lastSentProgress = await SendTaskProgressWithCache(responseStream, progress, lastSentProgress);
                         }
                         catch (Exception ex)
                         {
@@ -97,8 +98,8 @@ namespace OWhisper.Core.Controllers
                             break;
                         }
 
-                        // 每2秒发送一次心跳
-                        await System.Threading.Tasks.Task.Delay(2000, cancellationToken);
+                        // 每5秒发送一次心跳（增加间隔减少干扰）
+                        await System.Threading.Tasks.Task.Delay(5000, cancellationToken);
                         await SendSseMessage(responseStream, "heartbeat", new { timestamp = DateTime.UtcNow });
                     }
                 }
@@ -117,6 +118,71 @@ namespace OWhisper.Core.Controllers
             {
                 Log.Error(ex, "SSE连接错误: TaskId={TaskId}", taskId);
             }
+        }
+
+        /// <summary>
+        /// 带缓存的发送任务进度，避免重复发送相同状态
+        /// </summary>
+        private async Task<TranscriptionProgress> SendTaskProgressWithCache(Stream responseStream, TranscriptionTask task, TranscriptionProgress lastProgress)
+        {
+            // 添加调试日志
+            if (task.Status == TaskStatus.Unknown)
+            {
+                Log.Warning("检测到任务状态为Unknown: TaskId={TaskId}, CreatedAt={CreatedAt}", task.Id, task.CreatedAt);
+            }
+            
+            var currentProgress = new TranscriptionProgress
+            {
+                TaskId = task.Id,
+                Status = task.Status,
+                Progress = task.Progress,
+                QueuePosition = task.QueuePosition,
+                Message = GetStatusMessage(task),
+                Result = task.Result,
+                ErrorMessage = task.ErrorMessage
+            };
+
+            // 检查是否需要发送（避免重复发送相同状态）
+            if (ShouldSendProgress(currentProgress, lastProgress))
+            {
+                await SendProgressUpdate(responseStream, currentProgress);
+                Log.Debug("发送进度更新: TaskId={TaskId}, Status={Status}, Progress={Progress}%", 
+                    task.Id, task.Status, task.Progress);
+                return currentProgress;
+            }
+            else
+            {
+                Log.Debug("跳过重复的进度更新: TaskId={TaskId}, Status={Status}", task.Id, task.Status);
+                return lastProgress; // 返回上次发送的进度
+            }
+        }
+
+        /// <summary>
+        /// 判断是否需要发送进度更新
+        /// </summary>
+        private bool ShouldSendProgress(TranscriptionProgress current, TranscriptionProgress last)
+        {
+            // 如果没有上次发送的记录，肯定要发送
+            if (last == null)
+                return true;
+
+            // 状态改变了，必须发送
+            if (current.Status != last.Status)
+                return true;
+
+            // 队列位置改变了，需要发送
+            if (current.QueuePosition != last.QueuePosition)
+                return true;
+
+            // 对于Processing状态，只在进度有明显变化时发送（至少1%的变化）
+            if (current.Status == TaskStatus.Processing)
+            {
+                var progressDiff = Math.Abs(current.Progress - last.Progress);
+                return progressDiff >= 1.0f; // 至少1%的变化才发送
+            }
+
+            // 其他情况不需要重复发送
+            return false;
         }
 
         /// <summary>

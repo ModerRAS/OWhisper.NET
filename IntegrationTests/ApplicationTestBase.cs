@@ -52,7 +52,8 @@ namespace IntegrationTests {
             _appProcess = new Process {
                 StartInfo = new ProcessStartInfo {
                     FileName = "OWhisper.NET.exe",
-                    Arguments = "--debug", // 使用调试模式，不再使用--urls参数
+                    Arguments = "",
+                    //Arguments = "--debug", // 使用调试模式，不再使用--urls参数
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,

@@ -4,11 +4,11 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Net.Http;
 using OWhisper.Core.Models;
-using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
 using System.Threading;
 using System.Text;
-using Newtonsoft.Json;
 using TaskStatus = OWhisper.Core.Models.TaskStatus;
+using OWhisper.NET.Services; // 添加UrlAclHelper的命名空间
 
 namespace OWhisper.NET
 {
@@ -19,9 +19,28 @@ namespace OWhisper.NET
         private readonly HttpClient _httpClient;
         private string _currentTaskId;
         private CancellationTokenSource _sseCancellationToken;
+        private TaskStatus? _lastStatus = null; // 使用nullable类型来跟踪状态
         
         // 动态获取API基础URL
-        private string ApiBaseUrl => $"http://localhost:{Program.GetListenPort()}";
+        private string ApiBaseUrl
+        {
+            get
+            {
+                var listenUrl = Program._webApiService?.ListenUrl ?? "http://localhost:11899";
+                
+                // 如果监听地址是0.0.0.0，客户端应该使用127.0.0.1连接
+                if (listenUrl.Contains("://0.0.0.0:"))
+                {
+                    listenUrl = listenUrl.Replace("://0.0.0.0:", "://127.0.0.1:");
+                }
+                // 如果监听地址是+，客户端应该使用127.0.0.1连接
+                if (listenUrl.Contains("://+:")) {
+                    listenUrl = listenUrl.Replace("://+:", "://127.0.0.1:");
+                }
+
+                return listenUrl;
+            }
+        }
 
         public MainForm()
         {
@@ -35,6 +54,11 @@ namespace OWhisper.NET
             btnSelectFile.Click += BtnSelectFile_Click;
             btnSelectFolder.Click += BtnSelectOutput_Click;
             btnProcess.Click += BtnProcess_Click;
+            
+            // 绑定菜单事件处理程序
+            checkUrlAclMenuItem.Click += CheckUrlAclMenuItem_Click;
+            setupUrlAclMenuItem.Click += SetupUrlAclMenuItem_Click;
+            exitMenuItem.Click += ExitMenuItem_Click;
             
             // 设置初始placeholder文本
             txtSelectedFile.Text = "请选择音频文件...";
@@ -194,7 +218,8 @@ namespace OWhisper.NET
 
             btnProcess.Enabled = false;
             progressBar.Value = 0;
-            btnProcess.Text = "处理中...";
+            btnProcess.Text = "正在提交任务..."; // 只在开始时设置一次
+            _lastStatus = null; // 重置状态跟踪
 
             try
             {
@@ -210,7 +235,8 @@ namespace OWhisper.NET
                 if (taskResponse != null)
                 {
                     _currentTaskId = taskResponse.TaskId;
-                    btnProcess.Text = $"队列位置: {taskResponse.QueuePosition}";
+                    // 移除这里的按钮文字设置，让SSE更新来处理
+                    // btnProcess.Text = $"队列位置: {taskResponse.QueuePosition}";
                     
                     // 开始监听任务进度
                     await MonitorTaskProgress(_currentTaskId);
@@ -227,6 +253,7 @@ namespace OWhisper.NET
                 progressBar.Value = 0;
                 btnProcess.Text = "开始处理";
                 _currentTaskId = null;
+                _lastStatus = null; // 重置状态跟踪
             }
         }
 
@@ -239,10 +266,24 @@ namespace OWhisper.NET
                 {
                     throw new Exception($"API服务不可用，状态码: {response.StatusCode}");
                 }
+
+                // 解析API响应
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var apiResponse = JsonConvert.DeserializeObject<ApiResponse<object>>(responseContent);
+                
+                if (apiResponse?.Status != "success")
+                {
+                    var errorMessage = apiResponse?.Error ?? apiResponse?.ErrorCode ?? "API状态检查失败";
+                    throw new Exception($"API服务状态异常: {errorMessage}");
+                }
             }
             catch (HttpRequestException ex)
             {
                 throw new Exception($"无法连接到API服务: {ex.Message}");
+            }
+            catch (JsonException ex)
+            {
+                throw new Exception($"API响应解析失败: {ex.Message}");
             }
         }
 
@@ -363,28 +404,87 @@ namespace OWhisper.NET
             }
         }
 
+        /// <summary>
+        /// 更新进度条UI，将进度条和状态文字更新分离以减少闪烁
+        /// </summary>
         private void UpdateProgressUI(TranscriptionProgress progress)
         {
-            progressBar.Value = Math.Min(100, Math.Max(0, (int)progress.Progress));
+            
+            // 根据状态决定如何更新按钮文字
+            var shouldUpdateText = false;
+            var newText = string.Empty;
             
             switch (progress.Status)
             {
                 case TaskStatus.Queued:
-                    btnProcess.Text = $"队列位置: {progress.QueuePosition}";
+                    newText = $"队列位置: {progress.QueuePosition}";
+                    shouldUpdateText = progress.Status != _lastStatus || btnProcess.Text != newText;
                     break;
+                    
                 case TaskStatus.Processing:
-                    btnProcess.Text = $"处理中... {progress.Progress:F1}%";
+                    // 对于Processing状态，包含进度百分比
+                    var currentPercent = (int)progress.Progress;
+                    newText = $"处理中... {currentPercent}%";
+                    shouldUpdateText = progress.Status != _lastStatus || btnProcess.Text != newText;
+                    // 始终更新进度条
+                    UpdateProgressBar(progress.Progress);
                     break;
+                    
                 case TaskStatus.Completed:
-                    btnProcess.Text = "处理完成";
+                    newText = "处理完成";
+                    shouldUpdateText = progress.Status != _lastStatus;
+                    UpdateProgressBar(progress.Progress);
                     break;
+                    
                 case TaskStatus.Failed:
-                    btnProcess.Text = "处理失败";
+                    newText = "处理失败";
+                    shouldUpdateText = progress.Status != _lastStatus;
                     break;
+                    
                 case TaskStatus.Cancelled:
-                    btnProcess.Text = "已取消";
+                    newText = "已取消";
+                    shouldUpdateText = progress.Status != _lastStatus;
                     break;
             }
+            
+            // 只有在需要时才更新按钮文字
+            if (shouldUpdateText && !string.IsNullOrEmpty(newText))
+            {
+                btnProcess.Text = newText;
+                _lastStatus = progress.Status;
+            }
+        }
+
+        /// <summary>
+        /// 更新进度条
+        /// </summary>
+        private void UpdateProgressBar(double progress)
+        {
+            var progressValue = Math.Min(100, Math.Max(0, (int)progress));
+            if (progressBar.Value != progressValue)
+            {
+                progressBar.Value = progressValue;
+            }
+        }
+
+        /// <summary>
+        /// 更新状态文字（仅在状态改变时调用）
+        /// 注意：这个方法现在已被UpdateProgressUI替代，保留以防需要
+        /// </summary>
+        private void UpdateStatusText(TranscriptionProgress progress)
+        {
+            // 这个方法现在不应该被调用，所有逻辑已移到UpdateProgressUI中
+            System.Diagnostics.Debug.WriteLine("UpdateStatusText被调用，但应该使用UpdateProgressUI");
+        }
+
+        /// <summary>
+        /// 更新处理中的状态（降低更新频率）
+        /// 注意：这个方法现在已被UpdateProgressUI替代，保留以防需要
+        /// </summary>
+        private void UpdateProcessingStatus(double progress)
+        {
+            // 这个方法现在不应该被调用，所有逻辑已移到UpdateProgressUI中
+            System.Diagnostics.Debug.WriteLine("UpdateProcessingStatus被调用，但应该使用UpdateProgressUI");
         }
 
         private async Task HandleTaskCompletion(TranscriptionResult result)
@@ -452,29 +552,22 @@ namespace OWhisper.NET
         {
             try
             {
-                var jsonObject = JObject.Parse(jsonResponse);
+                var apiResponse = JsonConvert.DeserializeObject<ApiResponse<TaskCreationResponse>>(jsonResponse);
                 
-                var status = jsonObject["Status"]?.ToString();
-                if (status != "success")
+                if (apiResponse.Status != "success")
                 {
-                    var errorMessage = jsonObject["Error"]?.ToString() ?? 
-                                     jsonObject["ErrorCode"]?.ToString() ?? "未知错误";
+                    var errorMessage = apiResponse.Error ?? apiResponse.ErrorCode ?? "未知错误";
                     throw new Exception($"API返回错误: {errorMessage}");
                 }
                 
-                var data = jsonObject["Data"];
-                if (data == null)
+                if (apiResponse.Data == null)
                 {
                     throw new Exception("API响应中缺少数据字段");
                 }
                 
-                return new TaskCreationResponse
-                {
-                    TaskId = data["TaskId"]?.ToString(),
-                    QueuePosition = data["QueuePosition"]?.Value<int>() ?? 0
-                };
+                return apiResponse.Data;
             }
-            catch (Newtonsoft.Json.JsonException ex)
+            catch (JsonException ex)
             {
                 throw new Exception($"JSON解析失败: {ex.Message}");
             }
@@ -483,5 +576,133 @@ namespace OWhisper.NET
                 throw new Exception($"解析响应失败: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// 检查URL ACL权限菜单项点击事件
+        /// </summary>
+        private async void CheckUrlAclMenuItem_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                var listenUrl = Program._webApiService?.ListenUrl ?? "http://+:11899/";
+                var formattedUrl = UrlAclHelper.FormatUrlForAcl(listenUrl);
+                
+                var aclExists = await UrlAclHelper.CheckUrlAclAsync(formattedUrl);
+                var isAdmin = UrlAclHelper.IsRunningAsAdministrator();
+                var currentUser = UrlAclHelper.GetCurrentUserName();
+                
+                var message = new StringBuilder();
+                message.AppendLine($"URL ACL检查结果:");
+                message.AppendLine($"监听地址: {listenUrl}");
+                message.AppendLine($"格式化URL: {formattedUrl}");
+                message.AppendLine($"ACL权限状态: {(aclExists ? "已设置" : "未设置")}");
+                message.AppendLine($"管理员权限: {(isAdmin ? "是" : "否")}");
+                message.AppendLine($"当前用户: {currentUser}");
+                
+                if (!aclExists)
+                {
+                    message.AppendLine();
+                    message.AppendLine("推荐的设置命令:");
+                    message.AppendLine($"netsh http add urlacl url={formattedUrl} user={currentUser}");
+                }
+                
+                MessageBox.Show(message.ToString(), "URL ACL权限检查", 
+                    MessageBoxButtons.OK, aclExists ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"检查URL ACL权限时出错: {ex.Message}", "错误", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 设置URL ACL权限菜单项点击事件
+        /// </summary>
+        private async void SetupUrlAclMenuItem_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                var listenUrl = Program._webApiService?.ListenUrl ?? "http://+:11899/";
+                var formattedUrl = UrlAclHelper.FormatUrlForAcl(listenUrl);
+                var currentUser = UrlAclHelper.GetCurrentUserName();
+                
+                if (!UrlAclHelper.IsRunningAsAdministrator())
+                {
+                    var message = new StringBuilder();
+                    message.AppendLine("需要管理员权限才能设置URL ACL。");
+                    message.AppendLine();
+                    message.AppendLine("请以管理员身份运行此程序，或手动执行以下命令：");
+                    message.AppendLine();
+                    message.AppendLine($"netsh http add urlacl url={formattedUrl} user={currentUser}");
+                    message.AppendLine();
+                    message.AppendLine("或者使用Everyone用户：");
+                    message.AppendLine($"netsh http add urlacl url={formattedUrl} user=Everyone");
+                    
+                    MessageBox.Show(message.ToString(), "需要管理员权限", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                
+                // 首先检查是否已经设置
+                var aclExists = await UrlAclHelper.CheckUrlAclAsync(formattedUrl);
+                if (aclExists)
+                {
+                    var result = MessageBox.Show("URL ACL权限已经设置。是否要重新设置？", "权限已存在", 
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    
+                    if (result == DialogResult.No)
+                        return;
+                        
+                    // 先删除现有的ACL
+                    await UrlAclHelper.RemoveUrlAclAsync(formattedUrl);
+                }
+                
+                // 显示用户选择对话框
+                var userChoice = MessageBox.Show($"选择用户类型：\n\n是(Y) - 使用当前用户 ({currentUser})\n否(N) - 使用Everyone用户", 
+                    "选择用户类型", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                
+                if (userChoice == DialogResult.Cancel)
+                    return;
+                
+                var user = userChoice == DialogResult.Yes ? currentUser : "Everyone";
+                
+                // 设置URL ACL
+                var (success, resultMessage) = await UrlAclHelper.AddUrlAclAsync(formattedUrl, user);
+                
+                if (success)
+                {
+                    MessageBox.Show($"URL ACL权限设置成功！\n\nURL: {formattedUrl}\n用户: {user}", "设置成功", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show($"URL ACL权限设置失败:\n\n{resultMessage}", "设置失败", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"设置URL ACL权限时出错: {ex.Message}", "错误", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 退出菜单项点击事件
+        /// </summary>
+        private void ExitMenuItem_Click(object sender, EventArgs e)
+        {
+            Program.ExitApplication();
+        }
+    }
+
+    // 本地ApiResponse类定义用于反序列化
+    public class ApiResponse<T>
+    {
+        public string Status { get; set; } = string.Empty;
+        public T Data { get; set; }
+        public string Error { get; set; }
+        public string ErrorCode { get; set; }
     }
 }

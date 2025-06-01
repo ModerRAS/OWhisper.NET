@@ -32,7 +32,7 @@ namespace OWhisper.CLI.IntegrationTests
                 {
                     services.AddSingleton<IConfiguration>(configuration);
                     services.AddSingleton<IPlatformPathService, PlatformPathService>();
-                    services.AddHostedService<WebServerHostedService>();
+                    services.AddHostedService<WebApiHostedService>();
                     services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
                 });
 
@@ -110,7 +110,7 @@ namespace OWhisper.CLI.IntegrationTests
 
             // Assert
             hostedServices.Should().NotBeNull();
-            hostedServices.Should().ContainSingle(s => s is WebServerHostedService);
+            hostedServices.Should().ContainSingle(s => s is WebApiHostedService);
         }
 
         [Fact]
@@ -140,7 +140,7 @@ namespace OWhisper.CLI.IntegrationTests
         public async Task Logger_ShouldBeAvailable()
         {
             // Arrange & Act
-            var logger = _host!.Services.GetRequiredService<ILogger<WebServerHostedService>>();
+            var logger = _host!.Services.GetRequiredService<ILogger<WebApiHostedService>>();
 
             // Assert
             logger.Should().NotBeNull();

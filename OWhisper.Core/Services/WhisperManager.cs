@@ -9,6 +9,7 @@ using OWhisper.Core.Services;
 using Whisper.net;
 using Whisper.net.Ggml;
 using Serilog;
+using System.Security.Cryptography;
 
 namespace OWhisper.Core.Services
 {
@@ -16,6 +17,7 @@ namespace OWhisper.Core.Services
     {
         private WhisperProcessor _processor;
         private const string ModelName = "ggml-large-v3-turbo.bin";
+        private const string ModelSha256 = "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69";
         const GgmlType ggmlType = GgmlType.LargeV3Turbo;
         private readonly string _modelDir;
         private readonly string _modelPath;
@@ -27,6 +29,46 @@ namespace OWhisper.Core.Services
             _pathService = pathService ?? new PlatformPathService();
             _modelDir = _pathService.GetModelsPath();
             _modelPath = Path.Combine(_modelDir, ModelName);
+        }
+
+        /// <summary>
+        /// 计算文件的SHA256哈希值
+        /// </summary>
+        private static string CalculateFileSha256(string filePath)
+        {
+            try
+            {
+                using var sha256 = SHA256.Create();
+                using var stream = File.OpenRead(filePath);
+                var hash = sha256.ComputeHash(stream);
+                return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "计算文件SHA256失败: {FilePath}", filePath);
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 验证模型文件的SHA256哈希值
+        /// </summary>
+        private bool VerifyModelSha256(string filePath)
+        {
+            if (!File.Exists(filePath))
+            {
+                return false;
+            }
+
+            var actualSha256 = CalculateFileSha256(filePath);
+            var isValid = string.Equals(actualSha256, ModelSha256, StringComparison.OrdinalIgnoreCase);
+            
+            if (!isValid)
+            {
+                Log.Warning("模型文件SHA256校验失败. 预期: {Expected}, 实际: {Actual}", ModelSha256, actualSha256);
+            }
+            
+            return isValid;
         }
 
         public (bool exists, bool valid, long size, string path) CheckModelStatus()
@@ -41,8 +83,15 @@ namespace OWhisper.Core.Services
                 {
                     var fileInfo = new FileInfo(_modelPath);
                     size = fileInfo.Length;
-                    // 简单验证模型文件大小(假设有效模型至少10MB)
-                    valid = size > 10 * 1024 * 1024;
+                    
+                    // 验证文件大小和SHA256
+                    var sizeValid = size > 10 * 1024 * 1024; // 至少10MB
+                    var sha256Valid = VerifyModelSha256(_modelPath);
+                    
+                    valid = sizeValid && sha256Valid;
+                    
+                    Log.Information("模型文件校验 - 大小: {Size}字节, 大小有效: {SizeValid}, SHA256有效: {Sha256Valid}", 
+                        size, sizeValid, sha256Valid);
                 }
 
                 return (exists, valid, size, _modelPath);
@@ -110,7 +159,20 @@ namespace OWhisper.Core.Services
                         File.Delete(finalPath);
                     }
                     File.Move(tempFilePath, finalPath);
-                    Log.Information("模型下载完成，保存到: {ModelPath}", Path.Combine(targetModelsDir, ModelName));
+                    
+                    // 验证下载文件的SHA256
+                    Log.Information("正在验证下载文件的SHA256...");
+                    if (!VerifyModelSha256(finalPath))
+                    {
+                        Log.Error("下载的模型文件SHA256校验失败，删除损坏的文件");
+                        if (File.Exists(finalPath))
+                        {
+                            File.Delete(finalPath);
+                        }
+                        throw new AudioProcessingException("MODEL_VERIFICATION_FAILED", "下载的模型文件SHA256校验失败，可能文件已损坏");
+                    }
+                    
+                    Log.Information("模型下载完成并校验通过，保存到: {ModelPath}", finalPath);
                 }
                 catch (IOException ex)
                 {

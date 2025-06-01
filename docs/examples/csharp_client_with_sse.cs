@@ -5,10 +5,18 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Threading;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
-namespace OWhisper.NET.Example
+namespace OWhisper.Examples
 {
+    // API响应包装类
+    public class ApiResponse<T>
+    {
+        public string Status { get; set; }
+        public T Data { get; set; }
+        public string Error { get; set; }
+        public string ErrorCode { get; set; }
+    }
+
     public class TaskCreationResponse
     {
         public string TaskId { get; set; }
@@ -81,19 +89,14 @@ namespace OWhisper.NET.Example
                 throw new Exception($"提交任务失败: {response.StatusCode}\n{responseContent}");
             }
 
-            var apiResponse = JObject.Parse(responseContent);
-            if (apiResponse["Status"]?.ToString() != "success")
+            var apiResponse = JsonConvert.DeserializeObject<ApiResponse<TaskCreationResponse>>(responseContent);
+            if (apiResponse?.Status != "success")
             {
-                var error = apiResponse["Error"]?.ToString() ?? "未知错误";
+                var error = apiResponse?.Error ?? apiResponse?.ErrorCode ?? "未知错误";
                 throw new Exception($"API返回错误: {error}");
             }
 
-            var data = apiResponse["Data"];
-            return new TaskCreationResponse
-            {
-                TaskId = data["TaskId"]?.ToString(),
-                QueuePosition = data["QueuePosition"]?.Value<int>() ?? 0
-            };
+            return apiResponse.Data;
         }
 
         /// <summary>
@@ -111,22 +114,22 @@ namespace OWhisper.NET.Example
                 throw new Exception($"获取任务失败: {response.StatusCode}\n{responseContent}");
             }
 
-            var apiResponse = JObject.Parse(responseContent);
-            if (apiResponse["Status"]?.ToString() != "success")
+            var apiResponse = JsonConvert.DeserializeObject<ApiResponse<dynamic>>(responseContent);
+            if (apiResponse?.Status != "success")
             {
-                var error = apiResponse["Error"]?.ToString() ?? "未知错误";
+                var error = apiResponse?.Error ?? apiResponse?.ErrorCode ?? "未知错误";
                 throw new Exception($"API返回错误: {error}");
             }
 
-            var data = apiResponse["Data"];
+            var data = apiResponse.Data;
             return new TranscriptionProgress
             {
-                TaskId = data["id"]?.ToString(),
-                Status = data["status"]?.ToString(),
-                Progress = data["progress"]?.Value<float>() ?? 0,
-                QueuePosition = data["queuePosition"]?.Value<int>() ?? 0,
-                Result = data["result"] != null ? JsonConvert.DeserializeObject<TranscriptionResult>(data["result"].ToString()) : null,
-                ErrorMessage = data["errorMessage"]?.ToString()
+                TaskId = data.id?.ToString(),
+                Status = data.status?.ToString(),
+                Progress = data.progress ?? 0,
+                QueuePosition = data.queuePosition ?? 0,
+                Result = data.result != null ? JsonConvert.DeserializeObject<TranscriptionResult>(data.result.ToString()) : null,
+                ErrorMessage = data.errorMessage?.ToString()
             };
         }
 

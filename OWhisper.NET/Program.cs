@@ -2,58 +2,24 @@ using System;
 using System.Windows.Forms;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using EmbedIO;
-using EmbedIO.WebApi;
 using System.Management;
 using Serilog;
 using System.Text; // 添加StringBuilder支持
 using Velopack;
 using Velopack.Sources;
 using OWhisper.Core.Services;
-using OWhisper.Core.Controllers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
+using Serilog.Extensions.Logging;
+using OWhisper.NET.Services; // 添加UrlAclHelper的命名空间
 
 namespace OWhisper.NET {
     internal static class Program {
-        public static WhisperService _whisperService;
-        public static WebServer _webServer;
+        public static IWebApiService _webApiService;
         public static UpdateManager _updateManager;
         public static UpdateInfo _updateInfo; // 改为public访问
+        public static IServiceProvider _serviceProvider;
         
-        // 默认配置常量
-        public const string DEFAULT_HOST = "0.0.0.0";
-        public const int DEFAULT_PORT = 11899;
-
-        /// <summary>
-        /// 获取配置的监听地址
-        /// </summary>
-        public static string GetListenHost()
-        {
-            return Environment.GetEnvironmentVariable("OWHISPER_HOST") ?? DEFAULT_HOST;
-        }
-
-        /// <summary>
-        /// 获取配置的监听端口
-        /// </summary>
-        public static int GetListenPort()
-        {
-            var portStr = Environment.GetEnvironmentVariable("OWHISPER_PORT");
-            if (int.TryParse(portStr, out int port) && port > 0 && port <= 65535)
-            {
-                return port;
-            }
-            return DEFAULT_PORT;
-        }
-
-        /// <summary>
-        /// 获取完整的监听URL
-        /// </summary>
-        public static string GetListenUrl()
-        {
-            var host = GetListenHost();
-            var port = GetListenPort();
-            return $"http://{host}:{port}";
-        }
-
         /// <summary>
         /// 应用程序的主入口点
         /// </summary>
@@ -62,6 +28,8 @@ namespace OWhisper.NET {
             // 配置Serilog日志
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
+                .WriteTo.Console(
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
                 .WriteTo.File(
                     path: "Logs/log-.txt",
                     rollingInterval: RollingInterval.Day,
@@ -73,7 +41,9 @@ namespace OWhisper.NET {
                 Application.SetCompatibleTextRenderingDefault(false);
 
                 Log.Information("应用程序启动");
-                Log.Information("监听配置 - 地址: {Host}, 端口: {Port}", GetListenHost(), GetListenPort());
+
+                // 配置依赖注入
+                ConfigureServices();
 
                 // 初始化Velopack更新管理器（非调试模式）
                 if (args.Length == 0 || args[0] != "--debug") {
@@ -81,11 +51,8 @@ namespace OWhisper.NET {
                     _updateManager = new UpdateManager("https://velopack.miaostay.com/");
                 }
 
-                // 初始化核心服务
-                _whisperService = WhisperService.Instance;
-
-                // 启动WebAPI服务器（调试和正常模式都需要）
-                StartWebApiServer();
+                // 启动WebAPI服务
+                StartWebApiServiceAsync().Wait();
 
                 // 检查是否处于调试模式
                 if (args.Length > 0 && args[0] == "--debug") {
@@ -97,11 +64,195 @@ namespace OWhisper.NET {
                 }
 
                 // 正常模式：启动托盘应用
-                Application.Run(new TrayApp(_whisperService, _updateManager));
+                Application.Run(new TrayApp(_webApiService, _updateManager));
             } catch (Exception ex) {
                 Log.Fatal(ex, "应用程序启动失败");
                 MessageBox.Show($"启动失败: {ex.Message}", "错误",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 配置依赖注入服务
+        /// </summary>
+        private static void ConfigureServices()
+        {
+            var services = new ServiceCollection();
+            
+            // 添加日志服务
+            services.AddLogging(builder => builder.AddSerilog());
+            
+            // 添加核心服务
+            services.AddSingleton<IPlatformPathService, PlatformPathService>();
+            services.AddSingleton<IWebApiService, WebApiService>();
+            
+            _serviceProvider = services.BuildServiceProvider();
+            _webApiService = _serviceProvider.GetRequiredService<IWebApiService>();
+        }
+
+        /// <summary>
+        /// 启动WebAPI服务
+        /// </summary>
+        private static async Task StartWebApiServiceAsync()
+        {
+            try
+            {
+                Log.Information("正在启动WebAPI服务: {Url}", _webApiService.ListenUrl);
+                
+                // 检查URL ACL权限
+                await CheckAndSetupUrlAclAsync();
+                
+                await _webApiService.StartAsync();
+                Log.Information("WebAPI服务启动成功");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "WebAPI服务启动失败");
+                
+                // 如果启动失败，提供URL ACL相关的建议
+                var suggestion = GetUrlAclSuggestion();
+                throw new Exception($"WebAPI服务启动失败: {ex.Message}{Environment.NewLine}{suggestion}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 检查并设置URL ACL权限
+        /// </summary>
+        private static async Task CheckAndSetupUrlAclAsync()
+        {
+            try
+            {
+                var listenUrl = _webApiService.ListenUrl;
+                var formattedUrl = UrlAclHelper.FormatUrlForAcl(listenUrl);
+                
+                Log.Information("检查URL ACL权限: {Url}", formattedUrl);
+                
+                // 检查URL ACL是否已设置
+                var aclExists = await UrlAclHelper.CheckUrlAclAsync(formattedUrl);
+                
+                if (aclExists)
+                {
+                    Log.Information("URL ACL权限已存在");
+                    return;
+                }
+                
+                Log.Warning("URL ACL权限不存在，尝试自动设置");
+                
+                // 检查是否有管理员权限
+                if (!UrlAclHelper.IsRunningAsAdministrator())
+                {
+                    Log.Warning("当前没有管理员权限，无法自动设置URL ACL");
+                    //ShowUrlAclDialog(formattedUrl);
+                    return;
+                }
+                
+                // 尝试自动设置URL ACL
+                var currentUser = UrlAclHelper.GetCurrentUserName();
+                var (success, message) = await UrlAclHelper.AddUrlAclAsync(formattedUrl, currentUser);
+                
+                if (success)
+                {
+                    Log.Information("URL ACL权限设置成功");
+                }
+                else
+                {
+                    Log.Error("URL ACL权限设置失败: {Message}", message);
+                    ShowUrlAclDialog(formattedUrl);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "检查URL ACL权限时出错");
+            }
+        }
+
+        /// <summary>
+        /// 显示URL ACL设置对话框
+        /// </summary>
+        private static void ShowUrlAclDialog(string url)
+        {
+            try
+            {
+                var isAdmin = UrlAclHelper.IsRunningAsAdministrator();
+                var currentUser = UrlAclHelper.GetCurrentUserName();
+                
+                var message = new StringBuilder();
+                message.AppendLine("检测到可能的URL ACL权限问题。");
+                message.AppendLine();
+                message.AppendLine("为了让Web服务正常运行，您可能需要设置URL ACL权限。");
+                message.AppendLine();
+                message.AppendLine("推荐的解决方案：");
+                message.AppendLine("1. 以管理员权限运行此程序");
+                message.AppendLine("2. 或者手动执行以下命令：");
+                message.AppendLine();
+                message.AppendLine($"netsh http add urlacl url={url} user={currentUser}");
+                message.AppendLine();
+                message.AppendLine("或者使用Everyone用户：");
+                message.AppendLine($"netsh http add urlacl url={url} user=Everyone");
+                message.AppendLine();
+                
+                if (isAdmin)
+                {
+                    message.AppendLine("您当前具有管理员权限，是否尝试自动设置？");
+                    
+                    var result = MessageBox.Show(message.ToString(), "URL ACL权限设置", 
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    
+                    if (result == DialogResult.Yes)
+                    {
+                        Task.Run(async () =>
+                        {
+                            var (success, msg) = await UrlAclHelper.AddUrlAclAsync(url, currentUser);
+                            if (success)
+                            {
+                                MessageBox.Show("URL ACL权限设置成功！", "成功", 
+                                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            }
+                            else
+                            {
+                                MessageBox.Show($"URL ACL权限设置失败: {msg}", "失败", 
+                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            }
+                        });
+                    }
+                }
+                else
+                {
+                    message.AppendLine("您当前没有管理员权限，请以管理员身份运行程序或手动执行上述命令。");
+                    
+                    MessageBox.Show(message.ToString(), "URL ACL权限设置", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "显示URL ACL对话框时出错");
+            }
+        }
+
+        /// <summary>
+        /// 获取URL ACL相关建议
+        /// </summary>
+        private static string GetUrlAclSuggestion()
+        {
+            try
+            {
+                var listenUrl = _webApiService?.ListenUrl ?? "http://+:11899/";
+                var formattedUrl = UrlAclHelper.FormatUrlForAcl(listenUrl);
+                var recommendedCommand = UrlAclHelper.GetRecommendedCommand(formattedUrl);
+                
+                var suggestion = new StringBuilder();
+                suggestion.AppendLine();
+                suggestion.AppendLine("可能的解决方案：");
+                suggestion.AppendLine("1. 以管理员权限运行此程序");
+                suggestion.AppendLine("2. 或者手动执行以下命令设置URL ACL权限：");
+                suggestion.AppendLine($"   {recommendedCommand}");
+                
+                return suggestion.ToString();
+            }
+            catch
+            {
+                return Environment.NewLine + "建议以管理员权限运行此程序。";
             }
         }
 
@@ -119,16 +270,6 @@ namespace OWhisper.NET {
             }
 
             return sb.ToString();
-        }
-
-        private static void StartWebApiServer() {
-            _webServer = new WebServer(o => o
-                .WithUrlPrefix(GetListenUrl())
-                .WithMode(HttpListenerMode.EmbedIO))
-                .WithWebApi("/", m => m.WithController<WhisperController>().WithController<Core.Controllers.SseController>())
-                .WithWebApi("/api", m => m.WithController<WhisperController>().WithController<Core.Controllers.SseController>());
-
-            _webServer.Start();
         }
 
         public static async Task CheckForUpdatesAsync() {
@@ -181,13 +322,16 @@ namespace OWhisper.NET {
             try {
                 Log.Information("开始关闭应用程序...");
 
-                // 释放Web服务器资源
-                _webServer?.Dispose();
-                Log.Information("Web服务器已释放");
+                // 停止WebAPI服务
+                _webApiService?.StopAsync().Wait(5000);
+                Log.Information("WebAPI服务已停止");
 
-                // 释放Whisper服务资源
-                _whisperService?.Dispose();
-                Log.Information("Whisper服务已释放");
+                // 释放服务容器
+                if (_serviceProvider is IDisposable disposableServiceProvider)
+                {
+                    disposableServiceProvider.Dispose();
+                }
+                Log.Information("服务容器已释放");
                 
                 // 移除更新管理器释放（Velopack自动管理）
                 // _updateManager?.Dispose();

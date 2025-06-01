@@ -3,163 +3,113 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using OWhisper.Core.Services;
+using OWhisper.CLI;
 using System.Threading;
 using Xunit;
 
 namespace OWhisper.CLI.UnitTests
 {
-    public class WebServerHostedServiceTests
+    public class WebApiHostedServiceTests
     {
-        private readonly Mock<ILogger<WebServerHostedService>> _mockLogger;
-        private readonly Mock<IPlatformPathService> _mockPathService;
-        private readonly IConfiguration _configuration;
-        private readonly WebServerHostedService _service;
+        private readonly Mock<ILogger<WebApiHostedService>> _mockLogger;
+        private readonly Mock<IWebApiService> _mockWebApiService;
+        private readonly Mock<IConfiguration> _mockConfiguration;
+        private readonly WebApiHostedService _service;
 
-        public WebServerHostedServiceTests()
+        public WebApiHostedServiceTests()
         {
-            _mockLogger = new Mock<ILogger<WebServerHostedService>>();
-            _mockPathService = new Mock<IPlatformPathService>();
-
-            // 使用内存配置而不是mock
-            var configurationBuilder = new ConfigurationBuilder();
-            configurationBuilder.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                { "WebServer:Port", "5000" },
-                { "WebServer:Host", "localhost" }
-            });
-            _configuration = configurationBuilder.Build();
-
-            _service = new WebServerHostedService(
+            _mockLogger = new Mock<ILogger<WebApiHostedService>>();
+            _mockWebApiService = new Mock<IWebApiService>();
+            _mockConfiguration = new Mock<IConfiguration>();
+            
+            _service = new WebApiHostedService(
                 _mockLogger.Object,
-                _mockPathService.Object,
-                _configuration);
+                _mockWebApiService.Object,
+                _mockConfiguration.Object);
         }
 
         [Fact]
-        public void Constructor_WithValidParameters_ShouldNotThrow()
+        public void Constructor_WithNullLogger_ThrowsArgumentNullException()
         {
-            // Act & Assert
-            var action = () => new WebServerHostedService(
+            var action = () => new WebApiHostedService(
+                null!,
+                _mockWebApiService.Object,
+                _mockConfiguration.Object);
+
+            action.Should().Throw<ArgumentNullException>()
+                .WithParameterName("logger");
+        }
+
+        [Fact]
+        public void Constructor_WithNullWebApiService_ThrowsArgumentNullException()
+        {
+            var action = () => new WebApiHostedService(
                 _mockLogger.Object,
-                _mockPathService.Object,
-                _configuration);
+                null!,
+                _mockConfiguration.Object);
+
+            action.Should().Throw<ArgumentNullException>()
+                .WithParameterName("webApiService");
+        }
+
+        [Fact]
+        public void Constructor_WithNullConfiguration_ThrowsArgumentNullException()
+        {
+            var action = () => new WebApiHostedService(
+                _mockLogger.Object,
+                _mockWebApiService.Object,
+                null!);
+
+            action.Should().Throw<ArgumentNullException>()
+                .WithParameterName("configuration");
+        }
+
+        [Fact]
+        public void Constructor_WithValidParameters_CreatesInstance()
+        {
+            var action = () => new WebApiHostedService(
+                _mockLogger.Object,
+                _mockWebApiService.Object,
+                _mockConfiguration.Object);
 
             action.Should().NotThrow();
         }
 
         [Fact]
-        public void Constructor_WithNullLogger_ShouldThrowArgumentNullException()
-        {
-            // Act & Assert
-            var action = () => new WebServerHostedService(
-                null,
-                _mockPathService.Object,
-                _configuration);
-
-            action.Should().Throw<ArgumentNullException>();
-        }
-
-        [Fact]
-        public void Constructor_WithNullPathService_ShouldThrowArgumentNullException()
-        {
-            // Act & Assert
-            var action = () => new WebServerHostedService(
-                _mockLogger.Object,
-                null,
-                _configuration);
-
-            action.Should().Throw<ArgumentNullException>();
-        }
-
-        [Fact]
-        public void Constructor_WithNullConfiguration_ShouldThrowArgumentNullException()
-        {
-            // Act & Assert
-            var action = () => new WebServerHostedService(
-                _mockLogger.Object,
-                _mockPathService.Object,
-                null);
-
-            action.Should().Throw<ArgumentNullException>();
-        }
-
-        [Fact]
-        public async Task StartAsync_ShouldCallEnsureDirectoriesExist()
+        public async Task ExecuteAsync_StartsWebApiService()
         {
             // Arrange
-            using var cts = new CancellationTokenSource();
-            cts.CancelAfter(TimeSpan.FromSeconds(1)); // 快速取消以避免长时间运行
+            var cancellationTokenSource = new CancellationTokenSource();
+            cancellationTokenSource.Cancel(); // 立即取消以避免无限循环
 
             // Act
-            var startTask = _service.StartAsync(cts.Token);
-            
-            // 等待一小段时间让服务开始执行
-            await Task.Delay(100);
-            
-            cts.Cancel();
-            
-            try
-            {
-                await startTask;
-            }
-            catch (OperationCanceledException)
-            {
-                // 预期的取消异常
-            }
+            await _service.StartAsync(cancellationTokenSource.Token);
 
             // Assert
-            _mockPathService.Verify(p => p.EnsureDirectoriesExist(), Times.AtLeastOnce);
+            _mockWebApiService.Verify(s => s.StartAsync(It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]
-        public async Task StartAsync_ShouldUseConfigurationValues()
-        {
-            // Arrange - 使用自定义配置值
-            var configurationBuilder = new ConfigurationBuilder();
-            configurationBuilder.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                { "WebServer:Port", "8080" },
-                { "WebServer:Host", "0.0.0.0" }
-            });
-            var customConfiguration = configurationBuilder.Build();
-
-            var customService = new WebServerHostedService(
-                _mockLogger.Object,
-                _mockPathService.Object,
-                customConfiguration);
-
-            using var cts = new CancellationTokenSource();
-            cts.CancelAfter(TimeSpan.FromSeconds(1));
-
-            // Act
-            var startTask = customService.StartAsync(cts.Token);
-            
-            await Task.Delay(100);
-            cts.Cancel();
-            
-            try
-            {
-                await startTask;
-            }
-            catch (OperationCanceledException)
-            {
-                // 预期的取消异常
-            }
-
-            // Assert - 验证配置值正确读取
-            customConfiguration.GetValue<int>("WebServer:Port", 5000).Should().Be(8080);
-            customConfiguration.GetValue<string>("WebServer:Host", "localhost").Should().Be("0.0.0.0");
-        }
-
-        [Fact]
-        public async Task StopAsync_ShouldCompleteSuccessfully()
+        public async Task StopAsync_StopsWebApiService()
         {
             // Arrange
-            using var cts = new CancellationTokenSource();
+            var cancellationTokenSource = new CancellationTokenSource();
 
-            // Act & Assert
-            var stopAction = async () => await _service.StopAsync(cts.Token);
-            await stopAction.Should().NotThrowAsync();
+            // Act
+            await _service.StopAsync(cancellationTokenSource.Token);
+
+            // Assert
+            _mockWebApiService.Verify(s => s.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public void Dispose_DisposesWebApiService()
+        {
+            // Act
+            _service.Dispose();
+
+            // Assert
+            _mockWebApiService.Verify(s => s.Dispose(), Times.Once);
         }
     }
 } 

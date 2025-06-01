@@ -28,7 +28,7 @@ namespace OWhisper.CLI.UnitTests
             services.GetService<IPlatformPathService>().Should().NotBeNull();
             services.GetService<IHostedService>().Should().NotBeNull();
             services.GetService<IConfiguration>().Should().NotBeNull();
-            services.GetService<ILogger<WebServerHostedService>>().Should().NotBeNull();
+            services.GetService<ILogger<WebApiHostedService>>().Should().NotBeNull();
         }
 
         [Fact]
