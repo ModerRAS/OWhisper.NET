@@ -28,6 +28,7 @@ namespace OWhisper.NET {
         private readonly object _lock = new object();
 
         public event EventHandler<ServiceStatus> StatusChanged;
+        public event EventHandler<float> ProgressChanged;
 
         private WhisperService() {
         }
@@ -64,6 +65,26 @@ namespace OWhisper.NET {
             }
         }
 
+        private bool IsValidAac(byte[] audioData) {
+            try {
+                // AAC文件头检查: 常见的AAC格式标识
+                // ADTS格式: 0xFF 0xF1 或 0xFF 0xF9
+                // M4A格式: "ftyp" 在偏移4处
+                return audioData != null &&
+                       audioData.Length > 8 &&
+                       (
+                           // ADTS AAC
+                           (audioData[0] == 0xFF && (audioData[1] == 0xF1 || audioData[1] == 0xF9)) ||
+                           // M4A/MP4 AAC - 检查 'ftyp' 标识
+                           (audioData.Length > 8 && 
+                            audioData[4] == 'f' && audioData[5] == 't' && 
+                            audioData[6] == 'y' && audioData[7] == 'p')
+                       );
+            } catch {
+                return false;
+            }
+        }
+
         public void Start() {
             lock (_lock) {
                 if (_status != ServiceStatus.Stopped) return;
@@ -86,24 +107,47 @@ namespace OWhisper.NET {
             Log.Information("验证音频数据格式...");
             bool isMp3 = IsValidMp3(audioData);
             bool isWav = IsValidWav(audioData);
-            Log.Information("音频格式检测 - MP3: {IsMp3}, WAV: {IsWav}", isMp3, isWav);
+            bool isAac = IsValidAac(audioData);
+            Log.Information("音频格式检测 - MP3: {IsMp3}, WAV: {IsWav}, AAC: {IsAac}", isMp3, isWav, isAac);
 
-            if (!isMp3 && !isWav) {
+            if (!isMp3 && !isWav && !isAac) {
                 Log.Error("不支持的音频格式");
                 throw new AudioProcessingException("INVALID_AUDIO_FORMAT", "不支持的音频格式");
             }
 
-            var startTime = DateTime.UtcNow;
+            // 创建临时文件以获取音频时长
+            string tempFilePath = Path.GetTempFileName();
+            double totalMs = 0;
             try {
+                File.WriteAllBytes(tempFilePath, audioData);
+                TimeSpan totalDuration = AudioProcessor.GetAudioDuration(tempFilePath);
+                totalMs = totalDuration.TotalMilliseconds;
+                Log.Information("音频总时长: {TotalMs}ms", totalMs);
+
+                var startTime = DateTime.UtcNow;
                 using var whisperManager = new WhisperManager();
-                var text = await whisperManager.Transcribe(audioData);
+                var (srtContent, plainText) = await whisperManager.Transcribe(audioData, (progress) => {
+                    // 触发进度事件
+                    ProgressChanged?.Invoke(this, progress);
+                }, totalMs);
+                
                 return new TranscriptionResult {
-                    Text = text,
+                    Text = plainText,
+                    SrtContent = srtContent,
                     ProcessingTime = ( DateTime.UtcNow - startTime ).TotalSeconds
                 };
             } catch (Exception ex) {
                 Log.Error(ex, "转写过程中发生错误");
                 throw;
+            } finally {
+                // 删除临时文件
+                try {
+                    if (File.Exists(tempFilePath)) {
+                        File.Delete(tempFilePath);
+                    }
+                } catch (Exception ex) {
+                    Log.Error(ex, "删除临时文件失败");
+                }
             }
         }
 
@@ -256,7 +300,26 @@ namespace OWhisper.NET {
                    audioData[11] == 'E';
         }
 
-        public async Task<string> Transcribe(byte[] audioData) {
+        private bool IsValidAac(byte[] audioData) {
+            // AAC文件头检查: 常见的AAC格式标识
+            // ADTS格式: 0xFF 0xF1 或 0xFF 0xF9
+            // M4A格式: "ftyp" 在偏移4处
+            return audioData.Length > 8 &&
+                   (
+                       // ADTS AAC
+                       (audioData[0] == 0xFF && (audioData[1] == 0xF1 || audioData[1] == 0xF9)) ||
+                       // M4A/MP4 AAC - 检查 'ftyp' 标识
+                       (audioData.Length > 8 && 
+                        audioData[4] == 'f' && audioData[5] == 't' && 
+                        audioData[6] == 'y' && audioData[7] == 'p')
+                   );
+        }
+
+        public async Task<(string srtContent, string plainText)> Transcribe(byte[] audioData) {
+            return await Transcribe(audioData, null, 0);
+        }
+
+        public async Task<(string srtContent, string plainText)> Transcribe(byte[] audioData, Action<float> progressCallback, double totalMs) {
             TimeSpan timeTaken;
             var startTime = DateTime.UtcNow;
 
@@ -300,7 +363,8 @@ namespace OWhisper.NET {
 
             startTime = DateTime.UtcNow;
 
-            var ToReturn = new List<string>();
+            var srtSegments = new List<string>();
+            var plainTextSegments = new List<string>();
 
             // This section processes the audio file and prints the results (start time, end time and text) to the console.
             var startId = 1;
@@ -313,10 +377,24 @@ namespace OWhisper.NET {
                     timeTaken = DateTime.UtcNow - startTime;
                     Log.Information("{Start}-->{End}: {Text} [{TimeTaken}]",
                         result.Start, result.End, result.Text, timeTaken);
-                    ToReturn.Add($"{startId}");
-                    ToReturn.Add($"{result.Start.ToString(@"hh\:mm\:ss\,fff")} --> {result.End.ToString(@"hh\:mm\:ss\,fff")}");
-                    ToReturn.Add($"{result.Text}\n");
+                    
+                    // 构建SRT格式
+                    srtSegments.Add($"{startId}");
+                    srtSegments.Add($"{result.Start.ToString(@"hh\:mm\:ss\,fff")} --> {result.End.ToString(@"hh\:mm\:ss\,fff")}");
+                    srtSegments.Add($"{result.Text}");
+                    srtSegments.Add(""); // SRT需要空行分隔
+                    
+                    // 收集纯文本
+                    plainTextSegments.Add(result.Text.Trim());
+                    
                     startId++;
+                    
+                    // 计算并报告进度
+                    if (progressCallback != null && totalMs > 0) {
+                        float progress = (float)(result.End.TotalMilliseconds / totalMs) * 100;
+                        progressCallback(progress);
+                    }
+                    
                     startTime = DateTime.UtcNow;
                     if (lastText.Equals(result.Text.Trim())) {
                         repeatCount++;
@@ -332,10 +410,12 @@ namespace OWhisper.NET {
                 Log.Error(ex, "处理过程中发生错误");
             }
 
-
             Log.Information("⟫ Completed Whisper processing...");
 
-            return string.Join("\n", ToReturn);
+            var srtContent = string.Join("\n", srtSegments);
+            var plainText = string.Join(" ", plainTextSegments);
+            
+            return (srtContent, plainText);
         }
 
         public void Dispose() {

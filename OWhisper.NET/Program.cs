@@ -21,10 +21,7 @@ namespace OWhisper.NET {
         /// 应用程序的主入口点
         /// </summary>
         [STAThread]
-        static async Task Main() {
-            // Velopack自动更新初始化
-            VelopackApp.Build().Run();
-
+        static void Main(string[] args) {
             // 配置Serilog日志
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
@@ -40,16 +37,28 @@ namespace OWhisper.NET {
 
                 Log.Information("应用程序启动");
 
-                // 初始化Velopack更新管理器
-                _updateManager = new UpdateManager("https://velopack.miaostay.com/");
+                // 初始化Velopack更新管理器（非调试模式）
+                if (args.Length == 0 || args[0] != "--debug") {
+                    VelopackApp.Build().Run();
+                    _updateManager = new UpdateManager("https://velopack.miaostay.com/");
+                }
 
                 // 初始化核心服务
                 _whisperService = WhisperService.Instance;
 
-                // 启动WebAPI服务器
+                // 启动WebAPI服务器（调试和正常模式都需要）
                 StartWebApiServer();
 
-                // 启动托盘应用(使用ApplicationContext)，传入_updateManager
+                // 检查是否处于调试模式
+                if (args.Length > 0 && args[0] == "--debug") {
+                    // 调试模式：显示主窗体
+                    var mainForm = new MainForm();
+                    mainForm.ShowForDebug(); // 调用自定义调试显示方法
+                    Application.Run(mainForm);
+                    return;
+                }
+
+                // 正常模式：启动托盘应用
                 Application.Run(new TrayApp(_whisperService, _updateManager));
             } catch (Exception ex) {
                 Log.Fatal(ex, "应用程序启动失败");

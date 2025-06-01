@@ -9,7 +9,7 @@ namespace OWhisper.NET {
         private ContextMenuStrip trayMenu;
         private WhisperService whisperService;
         private UpdateManager updateManager; // 添加更新管理器字段
-        private Form1 debugForm;
+        private MainForm debugForm;
 
         public TrayApp() : this(null, null) {
         }
@@ -21,7 +21,7 @@ namespace OWhisper.NET {
         public TrayApp(WhisperService service, UpdateManager updateManager) {
             whisperService = service;
             this.updateManager = updateManager;
-            debugForm = new Form1();
+            debugForm = new MainForm();
 
             // 初始化托盘图标
             trayIcon = new NotifyIcon {

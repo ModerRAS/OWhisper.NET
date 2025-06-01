@@ -25,6 +25,7 @@ namespace OWhisper.NET {
                     WaveStream reader = fileExtension switch {
                         ".mp3" => TryCreateMp3Reader(inputStream),
                         ".wav" => new WaveFileReader(inputStream),
+                        ".aac" => TryCreateMediaFoundationReader(inputStream),
                         _ => TryCreateMediaFoundationReader(inputStream) ?? new WaveFileReader(inputStream)
                     };
 
@@ -108,23 +109,82 @@ namespace OWhisper.NET {
         }
 
         private static WaveStream TryCreateMediaFoundationReader(Stream stream) {
+            // MediaFoundationReader只支持文件路径，必须使用临时文件方式
+            return TryCreateMediaFoundationReaderFromTempFile(stream);
+        }
+
+        private static WaveStream TryCreateMediaFoundationReaderFromTempFile(Stream stream) {
             string tempFile = null;
             try {
-                // 临时文件方式处理流
+                // 创建临时文件
                 tempFile = Path.GetTempFileName();
+                var tempExtension = ".aac"; // 假设是AAC格式，MediaFoundation会自动检测
+                var tempFileWithExt = Path.ChangeExtension(tempFile, tempExtension);
+                
+                // 如果扩展名不同，重命名文件
+                if (tempFile != tempFileWithExt) {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                    tempFile = tempFileWithExt;
+                }
+
                 using (var fileStream = File.Create(tempFile)) {
                     stream.Position = 0;
                     stream.CopyTo(fileStream);
                 }
-                return new MediaFoundationReader(tempFile);
+
+                // 创建一个会自动清理临时文件的包装读取器
+                return new TempFileMediaFoundationReader(tempFile);
             } catch {
+                // 清理临时文件
                 if (tempFile != null && File.Exists(tempFile)) {
                     try { File.Delete(tempFile); } catch { }
                 }
                 return null;
-            } finally {
-                // 注意: 这里不能删除文件，因为MediaFoundationReader还需要访问它
-                // 文件删除将由调用方在适当时候处理
+            }
+        }
+
+        /// <summary>
+        /// 自动清理临时文件的MediaFoundationReader包装类
+        /// </summary>
+        private class TempFileMediaFoundationReader : WaveStream {
+            private readonly MediaFoundationReader _reader;
+            private readonly string _tempFile;
+            private bool _disposed = false;
+
+            public TempFileMediaFoundationReader(string tempFile) {
+                _tempFile = tempFile;
+                _reader = new MediaFoundationReader(tempFile);
+            }
+
+            public override WaveFormat WaveFormat => _reader.WaveFormat;
+            public override long Length => _reader.Length;
+            public override long Position { 
+                get => _reader.Position; 
+                set => _reader.Position = value; 
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) {
+                return _reader.Read(buffer, offset, count);
+            }
+
+            protected override void Dispose(bool disposing) {
+                if (!_disposed) {
+                    if (disposing) {
+                        _reader?.Dispose();
+                    }
+                    
+                    // 清理临时文件
+                    if (_tempFile != null && File.Exists(_tempFile)) {
+                        try {
+                            File.Delete(_tempFile);
+                        } catch {
+                            // 忽略删除错误，临时文件最终会被系统清理
+                        }
+                    }
+                    
+                    _disposed = true;
+                }
+                base.Dispose(disposing);
             }
         }
 
@@ -134,6 +194,23 @@ namespace OWhisper.NET {
                 return new Mp3FileReader(stream);
             } catch {
                 return null;
+            }
+        }
+        /// <summary>
+        /// 获取音频文件的总时长
+        /// </summary>
+        /// <param name="filePath">音频文件路径</param>
+        /// <returns>音频时长</returns>
+        public static TimeSpan GetAudioDuration(string filePath) {
+            if (!File.Exists(filePath)) {
+                throw new FileNotFoundException("音频文件不存在", filePath);
+            }
+            
+            try {
+                using var reader = new AudioFileReader(filePath);
+                return reader.TotalTime;
+            } catch (Exception ex) {
+                throw new InvalidOperationException("获取音频时长失败", ex);
             }
         }
     }

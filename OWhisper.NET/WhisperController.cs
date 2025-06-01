@@ -1,6 +1,5 @@
 using EmbedIO;
 using OWhisper.NET.Models;
-using OWhisper.NET.Models;
 using EmbedIO.WebApi;
 using EmbedIO.Routing;
 using System;
