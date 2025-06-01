@@ -200,23 +200,33 @@ POST /api/stop
 
 ## 💻 编程语言调用示例
 
-为了更好地组织代码示例，我们将所有编程语言的客户端代码移动到了专门的文档目录中。
+为了更好地组织代码示例，我们将所有编程语言的客户端代码统一到了专门的文档目录中。
 
 ### 📁 可用的客户端示例
 
-| 语言 | 文件 | 说明 |
-|------|------|------|
-| **Python** | [`docs/examples/python_client.py`](docs/examples/python_client.py) | 使用requests库的Python客户端 |
-| **Node.js** | [`docs/examples/nodejs_client.js`](docs/examples/nodejs_client.js) | 使用axios的JavaScript客户端 |
-| **C#** | [`docs/examples/csharp_client.cs`](docs/examples/csharp_client.cs) | .NET Framework/Core客户端 |
-| **Java** | [`docs/examples/java_client.java`](docs/examples/java_client.java) | 使用OkHttp的Java客户端 |
-| **PHP** | [`docs/examples/php_client.php`](docs/examples/php_client.php) | 使用cURL的PHP客户端 |
-| **Go** | [`docs/examples/go_client.go`](docs/examples/go_client.go) | 原生HTTP客户端的Go示例 |
+| 语言 | 文件 | 类型 | 说明 |
+|------|------|------|------|
+| **Python** | [`docs/examples/python/python_client.py`](docs/examples/python/python_client.py) | 完整版 ⭐ | 功能丰富的Python客户端，包含服务等待、状态检测、自动保存 |
+| **Node.js** | [`docs/examples/nodejs/nodejs_client.js`](docs/examples/nodejs/nodejs_client.js) | 完整版 ⭐ | 功能丰富的JavaScript客户端，包含完整项目结构 |
+| **Python** | [`docs/examples/python_client.py`](docs/examples/python_client.py) | 简化版 | 简单易用的Python客户端示例 |
+| **Node.js** | [`docs/examples/nodejs_client.js`](docs/examples/nodejs_client.js) | 简化版 | 简单易用的JavaScript客户端示例 |
+| **C#** | [`docs/examples/csharp_client.cs`](docs/examples/csharp_client.cs) | 标准版 | .NET Framework/Core客户端示例 |
+| **Java** | [`docs/examples/java_client.java`](docs/examples/java_client.java) | 标准版 | 使用OkHttp库的Java客户端 |
+| **PHP** | [`docs/examples/php_client.php`](docs/examples/php_client.php) | 标准版 | 使用cURL的PHP客户端 |
+| **Go** | [`docs/examples/go_client.go`](docs/examples/go_client.go) | 标准版 | 原生HTTP客户端的Go示例 |
+| **PowerShell** | [`docs/examples/powershell/`](docs/examples/powershell/) | 测试脚本 | 配置测试和环境变量验证脚本 |
 
 ### 🌟 功能特性
 
-所有客户端示例都支持：
+#### ⭐ 完整版客户端 (推荐)
+- ✅ **服务等待** - 自动等待OWhisper.NET服务启动
+- ✅ **状态检测** - 检查服务和模型状态  
+- ✅ **进度显示** - 详细的处理进度信息
+- ✅ **结果保存** - 自动保存TXT、SRT、JSON格式
+- ✅ **文件检测** - 自动查找音频文件
+- ✅ **项目结构** - 包含完整的依赖文件和配置
 
+#### 📋 其他客户端
 - ✅ **环境变量配置** - 支持`OWHISPER_HOST`和`OWHISPER_PORT`环境变量
 - ✅ **默认值回退** - 未设置环境变量时自动使用默认配置
 - ✅ **多种音频格式** - 自动检测MP3、WAV、AAC格式
@@ -226,14 +236,17 @@ POST /api/stop
 ### 🚀 快速开始
 
 1. **查看完整示例** - 访问 [`docs/examples/`](docs/examples/) 目录
-2. **选择语言** - 根据你的技术栈选择对应的客户端文件
+2. **选择客户端类型**:
+   - **完整版** (Python/Node.js) - 功能丰富，适合生产环境
+   - **简化版** - 代码简洁，适合快速集成
 3. **安装依赖** - 按照各语言的说明安装必要的第三方库
-4. **修改配置** - 设置环境变量或直接修改代码中的服务地址
+4. **配置环境** - 设置环境变量或直接修改代码中的服务地址
 5. **运行示例** - 使用你的音频文件测试转写功能
 
 ### 📖 详细文档
 
 查看 [`docs/examples/README.md`](docs/examples/README.md) 获取：
+- 完整的目录结构说明
 - 详细的安装和使用说明
 - 环境变量配置方法
 - 错误处理和故障排除
