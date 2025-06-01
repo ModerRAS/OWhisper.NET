@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using OWhisper.NET;
+using OWhisper.Core.Services;
 using Whisper.net.Ggml;
 
 namespace IntegrationTests {
@@ -10,11 +10,13 @@ namespace IntegrationTests {
     public class WhisperManagerDownloadTests : ApplicationTestBase, IDisposable {
         private readonly string _testModelDir;
         private readonly WhisperManager _manager;
+        private readonly IPlatformPathService _pathService;
 
         public WhisperManagerDownloadTests() {
             // 创建专用测试目录
             _testModelDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-            _manager = new WhisperManager();
+            _pathService = new PlatformPathService();
+            _manager = new WhisperManager(_pathService);
         }
 
         public void Dispose() {
@@ -23,6 +25,7 @@ namespace IntegrationTests {
                 if (Directory.Exists(_testModelDir)) {
                     Directory.Delete(_testModelDir, true);
                 }
+                _manager?.Dispose();
             } catch { /* 忽略清理错误 */ }
         }
 

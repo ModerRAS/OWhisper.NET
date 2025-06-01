@@ -20,6 +20,8 @@ namespace OWhisper.Core.Services
 
         public static WhisperService Instance => _instance.Value;
 
+        private readonly IPlatformPathService _platformPathService;
+
         public enum ServiceStatus
         {
             Stopped,
@@ -36,6 +38,7 @@ namespace OWhisper.Core.Services
 
         private WhisperService()
         {
+            _platformPathService = new PlatformPathService();
         }
 
         public ServiceStatus GetStatus() => _status;
@@ -147,7 +150,7 @@ namespace OWhisper.Core.Services
                 Log.Information("音频总时长: {TotalMs}ms", totalMs);
 
                 var startTime = DateTime.UtcNow;
-                using var whisperManager = new WhisperManager();
+                using var whisperManager = new WhisperManager(_platformPathService);
                 var (srtContent, plainText) = await whisperManager.Transcribe(audioData, (progress) =>
                 {
                     // 触发进度事件
@@ -158,17 +161,14 @@ namespace OWhisper.Core.Services
                 {
                     Success = true,
                     Text = plainText,
-                    Duration = TimeSpan.FromSeconds((DateTime.UtcNow - startTime).TotalSeconds)
+                    SrtContent = srtContent,
+                    ProcessingTime = (DateTime.UtcNow - startTime).TotalSeconds
                 };
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "转写过程中发生错误");
-                return new TranscriptionResult
-                {
-                    Success = false,
-                    Error = ex.Message
-                };
+                throw;
             }
             finally
             {

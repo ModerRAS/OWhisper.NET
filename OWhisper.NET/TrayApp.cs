@@ -2,6 +2,7 @@ using System;
 using System.Windows.Forms;
 using System.Drawing;
 using Velopack; // 添加Velopack引用
+using OWhisper.Core.Services; // 添加Core服务引用
 
 namespace OWhisper.NET {
     public class TrayApp : ApplicationContext {

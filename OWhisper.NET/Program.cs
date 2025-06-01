@@ -9,6 +9,8 @@ using Serilog;
 using System.Text; // 添加StringBuilder支持
 using Velopack;
 using Velopack.Sources;
+using OWhisper.Core.Services;
+using OWhisper.Core.Controllers;
 
 namespace OWhisper.NET {
     internal static class Program {
@@ -123,8 +125,8 @@ namespace OWhisper.NET {
             _webServer = new WebServer(o => o
                 .WithUrlPrefix(GetListenUrl())
                 .WithMode(HttpListenerMode.EmbedIO))
-                .WithWebApi("/", m => m.WithController<WhisperController>().WithController<SseController>())
-                .WithWebApi("/api", m => m.WithController<WhisperController>().WithController<SseController>());
+                .WithWebApi("/", m => m.WithController<WhisperController>().WithController<Core.Controllers.SseController>())
+                .WithWebApi("/api", m => m.WithController<WhisperController>().WithController<Core.Controllers.SseController>());
 
             _webServer.Start();
         }

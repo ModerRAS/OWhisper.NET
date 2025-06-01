@@ -1,5 +1,4 @@
 using System;
-using OWhisper.Core.Models;
 
 namespace OWhisper.Core.Models
 {
@@ -7,21 +6,22 @@ namespace OWhisper.Core.Models
     {
         public string Id { get; set; } = Guid.NewGuid().ToString();
         public string? FilePath { get; set; }
-        public string? FileName { get; set; }
+        public string FileName { get; set; } = string.Empty;
         public string? Language { get; set; }
         public string? Model { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         public DateTime? StartedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
-        public TaskStatus Status { get; set; } = TaskStatus.Pending;
-        public int Progress { get; set; } = 0;
+        public TaskStatus Status { get; set; } = TaskStatus.Queued;
+        public float Progress { get; set; } = 0;
+        public int QueuePosition { get; set; }
         public TranscriptionResult? Result { get; set; }
         public string? ErrorMessage { get; set; }
     }
 
     public enum TaskStatus
     {
-        Pending,
+        Queued,
         Processing,
         Completed,
         Failed,

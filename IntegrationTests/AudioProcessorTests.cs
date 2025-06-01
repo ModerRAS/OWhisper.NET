@@ -3,7 +3,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using OWhisper.NET;
+using OWhisper.Core.Services;
 using NAudio.Wave;
 
 namespace IntegrationTests {

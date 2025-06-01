@@ -3,11 +3,12 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Net.Http;
-using OWhisper.NET.Models;
+using OWhisper.Core.Models;
 using Newtonsoft.Json.Linq;
 using System.Threading;
 using System.Text;
 using Newtonsoft.Json;
+using TaskStatus = OWhisper.Core.Models.TaskStatus;
 
 namespace OWhisper.NET
 {
@@ -347,11 +348,11 @@ namespace OWhisper.NET
                 }
                 
                 // 如果任务完成，处理结果
-                if (progress.Status == Models.TaskStatus.Completed && progress.Result != null)
+                if (progress.Status == TaskStatus.Completed && progress.Result != null)
                 {
                     await HandleTaskCompletion(progress.Result);
                 }
-                else if (progress.Status == Models.TaskStatus.Failed)
+                else if (progress.Status == TaskStatus.Failed)
                 {
                     HandleTaskFailure(progress.ErrorMessage);
                 }
@@ -368,19 +369,19 @@ namespace OWhisper.NET
             
             switch (progress.Status)
             {
-                case Models.TaskStatus.Queued:
+                case TaskStatus.Queued:
                     btnProcess.Text = $"队列位置: {progress.QueuePosition}";
                     break;
-                case Models.TaskStatus.Processing:
+                case TaskStatus.Processing:
                     btnProcess.Text = $"处理中... {progress.Progress:F1}%";
                     break;
-                case Models.TaskStatus.Completed:
+                case TaskStatus.Completed:
                     btnProcess.Text = "处理完成";
                     break;
-                case Models.TaskStatus.Failed:
+                case TaskStatus.Failed:
                     btnProcess.Text = "处理失败";
                     break;
-                case Models.TaskStatus.Cancelled:
+                case TaskStatus.Cancelled:
                     btnProcess.Text = "已取消";
                     break;
             }

@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../OWhisper.NET/OWhisper.NET.csproj" />
+    <ProjectReference Include="../OWhisper.Core/OWhisper.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
