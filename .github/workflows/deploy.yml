@@ -109,10 +109,10 @@ jobs:
           }
         }
 
-        # 清理完整包：只保留最新的2个
-        if ($fullPackages.Count -gt 2) {
+        # 清理完整包：只保留最新的1个
+        if ($fullPackages.Count -gt 1) {
           $sortedFullPackages = $fullPackages | Sort-Object LastModified -Descending
-          $packagesToDelete = $sortedFullPackages | Select-Object -Skip 2
+          $packagesToDelete = $sortedFullPackages | Select-Object -Skip 1
           
           Write-Host "需要删除 $($packagesToDelete.Count) 个旧的完整包"
           foreach ($package in $packagesToDelete) {
