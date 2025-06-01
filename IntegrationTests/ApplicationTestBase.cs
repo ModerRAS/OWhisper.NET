@@ -14,6 +14,12 @@ namespace IntegrationTests {
         protected string TestResourcesDir;
         private Process _appProcess;
         private readonly List<int> _processIds = new List<int>();
+        
+        // 使用环境变量支持，但为测试提供明确的端口
+        private static readonly string TestHost = Environment.GetEnvironmentVariable("OWHISPER_TEST_HOST") ?? "localhost";
+        private static readonly int TestPort = int.TryParse(Environment.GetEnvironmentVariable("OWHISPER_TEST_PORT"), out int port) ? port : 11899;
+        private static readonly string TestBaseUrl = $"http://{TestHost}:{TestPort}";
+        
         [OneTimeSetUp]
         public void SetUp() {
             Console.WriteLine("初始化测试环境...");
@@ -24,6 +30,7 @@ namespace IntegrationTests {
                 "TestResources");
 
             Console.WriteLine($"测试资源目录: {TestResourcesDir}");
+            Console.WriteLine($"测试URL: {TestBaseUrl}");
 
             if (!Directory.Exists(TestResourcesDir)) {
                 Console.WriteLine("测试资源目录不存在，尝试创建...");
@@ -35,18 +42,26 @@ namespace IntegrationTests {
                 Console.WriteLine("测试资源目录创建成功");
             }
 
+            // 设置测试环境变量
+            Environment.SetEnvironmentVariable("OWHISPER_HOST", TestHost);
+            Environment.SetEnvironmentVariable("OWHISPER_PORT", TestPort.ToString());
+
             // 启动应用程序进程
             Console.WriteLine("启动OWhisper.NET进程...");
             _appProcess = new Process {
                 StartInfo = new ProcessStartInfo {
                     FileName = "OWhisper.NET.exe",
-                    Arguments = "--urls=http://localhost:9000",
+                    Arguments = "--debug", // 使用调试模式，不再使用--urls参数
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 }
             };
+            
+            // 在.NET Framework中设置环境变量
+            _appProcess.StartInfo.EnvironmentVariables["OWHISPER_HOST"] = TestHost;
+            _appProcess.StartInfo.EnvironmentVariables["OWHISPER_PORT"] = TestPort.ToString();
 
             try {
                 if (!_appProcess.Start()) {
@@ -66,26 +81,27 @@ namespace IntegrationTests {
                     }
                 }
 
-                // 等待应用启动
+                // 等待应用启动 - 使用正确的状态检查端点
                 Console.WriteLine("等待应用初始化...");
-                for (int i = 0; i < 10; i++) // 10秒超时
+                for (int i = 0; i < 15; i++) // 增加到15秒超时，因为第一次启动需要下载模型
                 {
                     try {
-                        using (var testClient = new HttpClient { Timeout = TimeSpan.FromSeconds(1) }) {
-                            var response = testClient.GetAsync("http://localhost:9000/api/health").Result;
+                        using (var testClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) }) {
+                            // 使用正确的状态检查端点
+                            var response = testClient.GetAsync($"{TestBaseUrl}/api/status").Result;
                             if (response.IsSuccessStatusCode) {
                                 Console.WriteLine("应用启动成功");
                                 break;
                             }
                         }
                     } catch {
-                        if (i == 9) throw new TimeoutException("应用启动超时");
+                        if (i == 14) throw new TimeoutException("应用启动超时");
                     }
                     Thread.Sleep(1000);
                 }
 
                 Client = new HttpClient {
-                    BaseAddress = new Uri("http://localhost:9000"),
+                    BaseAddress = new Uri(TestBaseUrl),
                     Timeout = TimeSpan.FromSeconds(30)
                 };
                 Console.WriteLine("HTTP客户端已初始化");
