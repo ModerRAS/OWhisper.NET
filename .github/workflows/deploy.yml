@@ -103,11 +103,16 @@ jobs:
           try {
             aws s3api delete-object --bucket $env:R2_BUCKET --key $key --endpoint-url $env:S3_ENDPOINT --profile r2
             Write-Host "已删除: $key"
+            return $true
           }
           catch {
             Write-Warning "删除文件失败: $key - $($_.Exception.Message)"
+            return $false
           }
         }
+
+        # 记录被删除的文件名
+        $deletedFiles = @()
 
         # 清理完整包：只保留最新的1个
         if ($fullPackages.Count -gt 1) {
@@ -116,11 +121,13 @@ jobs:
           
           Write-Host "需要删除 $($packagesToDelete.Count) 个旧的完整包"
           foreach ($package in $packagesToDelete) {
-            Remove-S3File $package.Key
+            if (Remove-S3File $package.Key) {
+              $deletedFiles += $package.Key
+            }
           }
         }
 
-        # 清理增量包：保留最近一个月的
+        # 清理增量包：保留最近一年的
         if ($deltaPackages.Count -gt 0) {
           $oneMonthAgo = (Get-Date).AddDays(-365)
           $recentDeltas = $deltaPackages | Where-Object { $_.LastModified -gt $oneMonthAgo }
@@ -136,15 +143,59 @@ jobs:
             
             Write-Host "保留最新的30个增量包，删除 $($deltasToDelete.Count) 个旧的增量包"
             foreach ($delta in $deltasToDelete) {
-              Remove-S3File $delta.Key
+              if (Remove-S3File $delta.Key) {
+                $deletedFiles += $delta.Key
+              }
             }
           }
           elseif ($oldDeltas.Count -gt 0) {
             # 正常情况：删除超过一年的增量包
             Write-Host "删除 $($oldDeltas.Count) 个超过一年的增量包"
             foreach ($delta in $oldDeltas) {
-              Remove-S3File $delta.Key
+              if (Remove-S3File $delta.Key) {
+                $deletedFiles += $delta.Key
+              }
             }
+          }
+        }
+
+        # 更新releases.nightly-win-x64.json文件
+        if ($deletedFiles.Count -gt 0) {
+          Write-Host "正在更新 releases.nightly-win-x64.json 文件..."
+          
+          try {
+            # 下载现有的releases文件
+            $releasesFile = "releases.nightly-win-x64.json"
+            aws s3api get-object --bucket $env:R2_BUCKET --key $releasesFile --endpoint-url $env:S3_ENDPOINT --profile r2 $releasesFile
+            
+            if (Test-Path $releasesFile) {
+              # 解析JSON
+              $releasesData = Get-Content $releasesFile -Raw | ConvertFrom-Json
+              
+              # 移除已删除文件对应的资产
+              $originalCount = $releasesData.Assets.Count
+              $releasesData.Assets = $releasesData.Assets | Where-Object { 
+                -not ($deletedFiles -contains $_.FileName) 
+              }
+              $newCount = $releasesData.Assets.Count
+              
+              Write-Host "从releases文件中移除了 $($originalCount - $newCount) 个资产条目"
+              
+              # 重新上传更新后的文件
+              $releasesData | ConvertTo-Json -Compress | Out-File -FilePath $releasesFile -Encoding UTF8
+              aws s3api put-object --bucket $env:R2_BUCKET --key $releasesFile --body $releasesFile --endpoint-url $env:S3_ENDPOINT --profile r2
+              
+              Write-Host "已更新 releases.nightly-win-x64.json 文件"
+              
+              # 清理临时文件
+              Remove-Item $releasesFile -ErrorAction SilentlyContinue
+            }
+            else {
+              Write-Warning "未找到 releases.nightly-win-x64.json 文件"
+            }
+          }
+          catch {
+            Write-Warning "更新releases文件时出错: $($_.Exception.Message)"
           }
         }
 
