@@ -73,13 +73,13 @@ jobs:
           $fileName = $file.Key
           $lastModified = [DateTime]::Parse($file.LastModified)
           
-          if ($fileName -match "OWhisper\.NET-[\d\.]++-nightly-win-x64-full\.nupkg$") {
+          if ($fileName -match "OWhisper\.NET-[\d\.]+-nightly-win-x64-full\.nupkg$") {
             $fullPackages += @{
               Key = $fileName
               LastModified = $lastModified
             }
           }
-          elseif ($fileName -match "OWhisper\.NET-[\d\.]++-nightly-win-x64-delta\.nupkg$") {
+          elseif ($fileName -match "OWhisper\.NET-[\d\.]+-nightly-win-x64-delta\.nupkg$") {
             $deltaPackages += @{
               Key = $fileName
               LastModified = $lastModified
