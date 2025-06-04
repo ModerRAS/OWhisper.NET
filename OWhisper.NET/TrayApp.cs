@@ -1,6 +1,8 @@
 using System;
 using System.Windows.Forms;
 using System.Drawing;
+using System.IO;
+using System.Reflection;
 using Velopack; // 添加Velopack引用
 using OWhisper.Core.Services; // 添加Core服务引用
 
@@ -27,7 +29,7 @@ namespace OWhisper.NET {
             // 初始化托盘图标
             trayIcon = new NotifyIcon {
                 Text = "OWhisper.NET",
-                Icon = new Icon(SystemIcons.Application, 40, 40),
+                Icon = LoadAppIcon(),
                 Visible = true
             };
 
@@ -49,6 +51,64 @@ namespace OWhisper.NET {
 
             trayIcon.ContextMenuStrip = trayMenu;
             trayIcon.DoubleClick += (s, e) => OnShowDebug(s, e);
+        }
+
+        // 添加加载应用图标的方法
+        private Icon LoadAppIcon() {
+            try {
+                // 首先尝试从文件系统加载高分辨率托盘图标
+                string trayIconPath = Path.Combine(Application.StartupPath, "Resources", "app_tray_icon.ico");
+                if (File.Exists(trayIconPath)) {
+                    return new Icon(trayIconPath);
+                }
+
+                // 如果托盘图标不存在，尝试普通图标
+                string iconPath = Path.Combine(Application.StartupPath, "Resources", "app_icon.ico");
+                if (File.Exists(iconPath)) {
+                    return new Icon(iconPath);
+                }
+
+                // 如果文件不存在，尝试从嵌入的资源加载
+                var assembly = Assembly.GetExecutingAssembly();
+                
+                // 先尝试托盘图标资源
+                using (var stream = assembly.GetManifestResourceStream("OWhisper.NET.Resources.app_tray_icon.ico")) {
+                    if (stream != null) {
+                        return new Icon(stream);
+                    }
+                }
+                
+                // 再尝试普通图标资源
+                using (var stream = assembly.GetManifestResourceStream("OWhisper.NET.Resources.app_icon.ico")) {
+                    if (stream != null) {
+                        return new Icon(stream);
+                    }
+                }
+
+                // 如果都失败了，尝试加载超高分辨率PNG图标并转换
+                string[] pngPaths = {
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_super_256x256.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_256x256.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_128x128.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_64x64.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_32x32.png")
+                };
+
+                foreach (string pngPath in pngPaths) {
+                    if (File.Exists(pngPath)) {
+                        using (var bitmap = new Bitmap(pngPath)) {
+                            return Icon.FromHandle(bitmap.GetHicon());
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) {
+                // 记录错误但不中断应用
+                Console.WriteLine($"加载自定义图标失败: {ex.Message}");
+            }
+
+            // 回退到系统默认图标
+            return new Icon(SystemIcons.Application, 32, 32);
         }
 
         private async void OnStartService(object sender, EventArgs e) {

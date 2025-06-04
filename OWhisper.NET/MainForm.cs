@@ -7,6 +7,8 @@ using OWhisper.Core.Models;
 using Newtonsoft.Json;
 using System.Threading;
 using System.Text;
+using System.Drawing;
+using System.Reflection;
 using TaskStatus = OWhisper.Core.Models.TaskStatus;
 using OWhisper.NET.Services; // 添加UrlAclHelper的命名空间
 
@@ -46,6 +48,9 @@ namespace OWhisper.NET
         {
             InitializeComponent();
             
+            // 设置窗体图标
+            this.Icon = LoadAppIcon();
+            
             // 初始化HTTP客户端
             _httpClient = new HttpClient();
             _httpClient.Timeout = TimeSpan.FromMinutes(30); // 设置较长的超时时间
@@ -76,6 +81,89 @@ namespace OWhisper.NET
                 _sseCancellationToken?.Cancel();
                 _sseCancellationToken?.Dispose();
             };
+        }
+
+        // 添加加载应用图标的方法（优化版本，专门为MainForm任务栏优化）
+        private Icon LoadAppIcon() {
+            try {
+                // 首先尝试直接从超高分辨率PNG图标创建Icon（任务栏专用）
+                string[] highResPngPaths = {
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_super_512x512.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_super_256x256.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_512x512.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_256x256.png")
+                };
+
+                foreach (string pngPath in highResPngPaths) {
+                    if (File.Exists(pngPath)) {
+                        using (var bitmap = new Bitmap(pngPath)) {
+                            // 为任务栏创建高分辨率图标，指定较大尺寸
+                            var largeIcon = new Icon(Icon.FromHandle(bitmap.GetHicon()), 64, 64);
+                            return largeIcon;
+                        }
+                    }
+                }
+
+                // 回退到ICO文件
+                string iconPath = Path.Combine(Application.StartupPath, "Resources", "app_icon.ico");
+                if (File.Exists(iconPath)) {
+                    // 从ICO文件创建较大尺寸的图标
+                    using (var icon = new Icon(iconPath)) {
+                        return new Icon(icon, 64, 64);
+                    }
+                }
+
+                // 如果文件不存在，尝试从嵌入的资源加载超高分辨率版本
+                var assembly = Assembly.GetExecutingAssembly();
+                
+                string[] embeddedResources = {
+                    "OWhisper.NET.Resources.app_icon_super_512x512.png",
+                    "OWhisper.NET.Resources.app_icon_super_256x256.png",
+                    "OWhisper.NET.Resources.app_icon_256x256.png"
+                };
+
+                foreach (string resourceName in embeddedResources) {
+                    using (var stream = assembly.GetManifestResourceStream(resourceName)) {
+                        if (stream != null) {
+                            using (var bitmap = new Bitmap(stream)) {
+                                var largeIcon = new Icon(Icon.FromHandle(bitmap.GetHicon()), 64, 64);
+                                return largeIcon;
+                            }
+                        }
+                    }
+                }
+
+                // 最后尝试普通ICO资源
+                using (var stream = assembly.GetManifestResourceStream("OWhisper.NET.Resources.app_icon.ico")) {
+                    if (stream != null) {
+                        using (var icon = new Icon(stream)) {
+                            return new Icon(icon, 64, 64);
+                        }
+                    }
+                }
+
+                // 如果都失败了，尝试加载其他PNG图标并转换
+                string[] fallbackPngPaths = {
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_128x128.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_64x64.png"),
+                    Path.Combine(Application.StartupPath, "Resources", "app_icon_32x32.png")
+                };
+
+                foreach (string pngPath in fallbackPngPaths) {
+                    if (File.Exists(pngPath)) {
+                        using (var bitmap = new Bitmap(pngPath)) {
+                            return new Icon(Icon.FromHandle(bitmap.GetHicon()), 48, 48);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) {
+                // 记录错误但不中断应用
+                Console.WriteLine($"加载自定义图标失败: {ex.Message}");
+            }
+
+            // 回退到系统默认图标，但使用较大尺寸
+            return new Icon(SystemIcons.Application, 48, 48);
         }
 
         /// <summary>

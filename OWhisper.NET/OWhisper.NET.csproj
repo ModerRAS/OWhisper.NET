@@ -5,6 +5,8 @@
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <LangVersion>8.0</LangVersion>
+    <ApplicationIcon>Resources\app_icon.ico</ApplicationIcon>
+    <Win32Resource />
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,6 +29,28 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OWhisper.Core\OWhisper.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\app_icon.ico" />
+    <EmbeddedResource Include="Resources\app_tray_icon.ico" />
+    <EmbeddedResource Include="Resources\app_icon_32x32.png" />
+    <EmbeddedResource Include="Resources\app_icon_64x64.png" />
+    <EmbeddedResource Include="Resources\app_icon_256x256.png" />
+    <EmbeddedResource Include="Resources\app_icon_super_256x256.png" />
+    <EmbeddedResource Include="Resources\app_icon_super_512x512.png" />
+    <Content Include="Resources\app_icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\app_tray_icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\app_icon_super_256x256.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\app_icon_super_512x512.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
