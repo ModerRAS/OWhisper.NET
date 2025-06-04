@@ -169,27 +169,26 @@ namespace OWhisper.Core.Services
 
             try
             {
-                // 配置下载选项
+                // 配置下载选项 - 适配 Downloader 3.1.2
                 var downloadOpt = new DownloadConfiguration()
                 {
                     ChunkCount = 8, // 使用8个分片并行下载
                     ParallelDownload = true, // 启用并行下载
                     ParallelCount = 4, // 并发下载数
                     MaximumBytesPerSecond = 0, // 不限制下载速度
-                    TempDirectory = targetModelsDir, // 临时文件目录
                     BufferBlockSize = 8192, // 8KB 缓冲区
                     MaxTryAgainOnFailover = 5, // 最大重试次数
                     MinimumSizeOfChunking = 1024 * 1024, // 最小分片大小 1MB
                     ReserveStorageSpaceBeforeStartingDownload = true, // 预分配存储空间
                     ClearPackageOnCompletionWithFailure = true, // 失败时清理包文件
-                    Timeout = (int)TimeSpan.FromMinutes(15).TotalMilliseconds, // 15分钟超时
+                    Timeout = (int)TimeSpan.FromMinutes(15).TotalMilliseconds, // 15分钟超时，使用毫秒
                     RequestConfiguration = new RequestConfiguration()
                     {
                         UserAgent = "OWhisper.NET/1.0 (Downloader)",
                         Accept = "*/*",
                         KeepAlive = true,
                         ProtocolVersion = new Version(1, 1),
-                        Timeout = TimeSpan.FromMinutes(2) // 单个请求2分钟超时
+                        Timeout = (int)TimeSpan.FromMinutes(2).TotalMilliseconds // 单个请求2分钟超时，转换为毫秒
                     }
                 };
 
@@ -251,7 +250,8 @@ namespace OWhisper.Core.Services
                     }
                     else
                     {
-                        Log.Information("下载成功完成: {FileName}", e.FileName);
+                        // 在 Downloader 3.1.2 中，AsyncCompletedEventArgs 没有 FileName 属性
+                        Log.Information("下载成功完成");
                     }
                 };
 
@@ -260,8 +260,9 @@ namespace OWhisper.Core.Services
                     // 可选：记录单个分片的详细进度（仅在调试时启用）
                     if (Log.IsEnabled(Serilog.Events.LogEventLevel.Debug))
                     {
-                        Log.Debug("分片 {ChunkId}: {Progress:F1}% ({ReceivedMB}MB / {TotalMB}MB) - 速度: {Speed:F1}KB/s",
-                            e.Id, e.ProgressPercentage, 
+                        // 在 Downloader 3.1.2 中，DownloadProgressChangedEventArgs 没有 Id 属性，使用其他标识符
+                        Log.Debug("分片进度: {Progress:F1}% ({ReceivedMB}MB / {TotalMB}MB) - 速度: {Speed:F1}KB/s",
+                            e.ProgressPercentage, 
                             e.ReceivedBytesSize / (1024 * 1024), 
                             e.TotalBytesToReceive / (1024 * 1024),
                             e.AverageBytesPerSecondSpeed / 1024);
@@ -274,7 +275,11 @@ namespace OWhisper.Core.Services
                 {
                     try
                     {
+#if NET8_0_OR_GREATER
                         var packageJson = await File.ReadAllTextAsync(packageFilePath);
+#else
+                        var packageJson = File.ReadAllText(packageFilePath);
+#endif
                         package = Newtonsoft.Json.JsonConvert.DeserializeObject<DownloadPackage>(packageJson);
                         if (package != null && package.Urls?.FirstOrDefault() == modelUrl)
                         {
@@ -293,26 +298,38 @@ namespace OWhisper.Core.Services
                 }
 
                 // 开始下载（支持断点续传）
+                // 注意：在 Downloader 3.1.2 中，DownloadFileTaskAsync 返回 void 而不是 DownloadPackage
                 if (package != null)
                 {
                     Log.Information("继续断点续传下载...");
                     await downloader.DownloadFileTaskAsync(package);
+                    // 由于返回类型是 void，我们需要重新获取 package 信息
+                    package = downloader.Package;
                 }
                 else
                 {
                     Log.Information("开始新的多线程下载...");
-                    package = await downloader.DownloadFileTaskAsync(modelUrl, tempFilePath);
+                    await downloader.DownloadFileTaskAsync(modelUrl, tempFilePath);
+                    // 获取下载后的 package 信息
+                    package = downloader.Package;
                 }
 
                 // 保存下载包信息（用于断点续传）
-                try
+                if (package != null)
                 {
-                    var packageJson = Newtonsoft.Json.JsonConvert.SerializeObject(package, Newtonsoft.Json.Formatting.Indented);
-                    await File.WriteAllTextAsync(packageFilePath, packageJson);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warning(ex, "保存下载包信息失败，将无法使用断点续传");
+                    try
+                    {
+                        var packageJson = Newtonsoft.Json.JsonConvert.SerializeObject(package, Newtonsoft.Json.Formatting.Indented);
+#if NET8_0_OR_GREATER
+                        await File.WriteAllTextAsync(packageFilePath, packageJson);
+#else
+                        File.WriteAllText(packageFilePath, packageJson);
+#endif
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "保存下载包信息失败，将无法使用断点续传");
+                    }
                 }
 
                 var elapsed = DateTime.UtcNow - downloadStartTime;
@@ -658,7 +675,11 @@ namespace OWhisper.Core.Services
                     return (false, 0, 0, 0);
                 }
 
+#if NET8_0_OR_GREATER
                 var packageJson = await File.ReadAllTextAsync(packageFilePath);
+#else
+                var packageJson = File.ReadAllText(packageFilePath);
+#endif
                 var package = Newtonsoft.Json.JsonConvert.DeserializeObject<DownloadPackage>(packageJson);
                 
                 if (package?.Chunks != null)
