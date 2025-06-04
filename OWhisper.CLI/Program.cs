@@ -106,6 +106,27 @@ public class WebApiHostedService : BackgroundService
         }
     }
 
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("正在停止WebAPI托管服务...");
+        
+        try
+        {
+            // 停止WebAPI服务
+            await _webApiService.StopAsync(cancellationToken);
+            _logger.LogInformation("WebAPI服务已停止");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "停止WebAPI服务时出错");
+            throw;
+        }
+        finally
+        {
+            await base.StopAsync(cancellationToken);
+        }
+    }
+
     public override void Dispose()
     {
         _webApiService?.Dispose();

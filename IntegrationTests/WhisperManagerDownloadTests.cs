@@ -19,7 +19,7 @@ namespace IntegrationTests {
             _manager = new WhisperManager(_pathService);
         }
 
-        public void Dispose() {
+        public new void Dispose() {
             // 测试完成后清理临时目录
             try {
                 if (Directory.Exists(_testModelDir)) {

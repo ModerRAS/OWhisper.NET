@@ -32,6 +32,7 @@ namespace OWhisper.CLI.IntegrationTests
                 {
                     services.AddSingleton<IConfiguration>(configuration);
                     services.AddSingleton<IPlatformPathService, PlatformPathService>();
+                    services.AddSingleton<IWebApiService, WebApiService>();
                     services.AddHostedService<WebApiHostedService>();
                     services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
                 });
@@ -57,7 +58,7 @@ namespace OWhisper.CLI.IntegrationTests
         }
 
         [Fact]
-        public async Task WebServer_ShouldStartSuccessfully()
+        public void WebServer_ShouldStartSuccessfully()
         {
             // Assert - 如果能到这里说明服务启动成功
             _host.Should().NotBeNull();
@@ -103,7 +104,7 @@ namespace OWhisper.CLI.IntegrationTests
         }
 
         [Fact]
-        public async Task HostedService_ShouldRegisterCorrectly()
+        public void HostedService_ShouldRegisterCorrectly()
         {
             // Arrange & Act
             var hostedServices = _host!.Services.GetServices<IHostedService>();
@@ -114,7 +115,7 @@ namespace OWhisper.CLI.IntegrationTests
         }
 
         [Fact]
-        public async Task Configuration_ShouldLoadCorrectly()
+        public void Configuration_ShouldLoadCorrectly()
         {
             // Arrange & Act
             var configuration = _host!.Services.GetRequiredService<IConfiguration>();
@@ -126,7 +127,7 @@ namespace OWhisper.CLI.IntegrationTests
         }
 
         [Fact]
-        public async Task PlatformPathService_ShouldBeRegistered()
+        public void PlatformPathService_ShouldBeRegistered()
         {
             // Arrange & Act
             var pathService = _host!.Services.GetRequiredService<IPlatformPathService>();
@@ -137,7 +138,7 @@ namespace OWhisper.CLI.IntegrationTests
         }
 
         [Fact]
-        public async Task Logger_ShouldBeAvailable()
+        public void Logger_ShouldBeAvailable()
         {
             // Arrange & Act
             var logger = _host!.Services.GetRequiredService<ILogger<WebApiHostedService>>();

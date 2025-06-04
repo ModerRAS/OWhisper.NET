@@ -64,7 +64,7 @@ namespace IntegrationTests {
             Assert.AreEqual(initialTempFiles, finalTempFiles);
         }
 
-        public new void Dispose() {
+        public void Dispose() {
             foreach (var file in _tempFiles.Where(File.Exists)) {
                 File.Delete(file);
             }
