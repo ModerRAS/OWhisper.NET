@@ -29,64 +29,93 @@ jobs:
         
     - name: 安装依赖包
       run: |
-        pip install huggingface_hub torch transformers
+        pip install huggingface_hub torch transformers boto3
         
-    - name: 配置 AWS CLI (用于 Cloudflare R2)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y awscli
-        
-        # 配置 AWS CLI 访问 R2
-        aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
-        aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        aws configure set region auto
-        
-    - name: 检查模型是否已存在
-      id: check_model
+    - name: 检查模型是否已存在并下载上传
       env:
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
         R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        MODEL_VERSION: ${{ github.event.inputs.model_version }}
+        FORCE_DOWNLOAD: ${{ github.event.inputs.force_download }}
+        WORKFLOW_NAME: ${{ github.workflow }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_NUMBER: ${{ github.run_number }}
       run: |
-        model_name="ggml-${{ github.event.inputs.model_version }}.bin"
-        echo "正在检查模型文件: $model_name"
-        
-        # 检查文件是否已存在于 R2
-        if aws s3api head-object --bucket $R2_BUCKET --key "models/$model_name" --endpoint-url $S3_ENDPOINT >/dev/null 2>&1; then
-          echo "模型文件已存在于 R2"
-          echo "exists=true" >> $GITHUB_OUTPUT
-          if [ "${{ github.event.inputs.force_download }}" = "true" ]; then
-            echo "强制重新下载已启用"
-            echo "should_download=true" >> $GITHUB_OUTPUT
-          else
-            echo "跳过下载，使用现有文件"
-            echo "should_download=false" >> $GITHUB_OUTPUT
-          fi
-        else
-          echo "模型文件不存在，需要下载"
-          echo "exists=false" >> $GITHUB_OUTPUT
-          echo "should_download=true" >> $GITHUB_OUTPUT
-        fi
-        
-    - name: 下载并转换 Whisper 模型
-      if: steps.check_model.outputs.should_download == 'true'
-      run: |
-        echo "开始下载 Whisper ${{ github.event.inputs.model_version }} 模型..."
-        
-        # 创建模型下载目录
-        mkdir -p models
-        
-        # 使用 Python 脚本下载和转换模型
         python << 'EOF'
         import os
+        import json
+        import hashlib
         import urllib.request
         import urllib.error
-        from huggingface_hub import hf_hub_download, login
-        import torch
+        from datetime import datetime, timezone
+        from pathlib import Path
+        import boto3
+        from botocore.exceptions import ClientError, NoCredentialsError
+        from huggingface_hub import hf_hub_download
         from transformers import WhisperProcessor, WhisperForConditionalGeneration
         import shutil
+
+        # 环境变量
+        model_version = os.environ['MODEL_VERSION']
+        force_download = os.environ['FORCE_DOWNLOAD'].lower() == 'true'
         
-        model_version = "${{ github.event.inputs.model_version }}"
-        print(f"正在处理模型: {model_version}")
+        # R2 配置
+        r2_access_key = os.environ['R2_ACCESS_KEY_ID']
+        r2_secret_key = os.environ['R2_SECRET_ACCESS_KEY']
+        s3_endpoint = os.environ['S3_ENDPOINT']
+        bucket_name = os.environ['R2_BUCKET']
+        
+        # 工作流信息
+        workflow_name = os.environ['WORKFLOW_NAME']
+        run_id = os.environ['RUN_ID']
+        run_number = os.environ['RUN_NUMBER']
+
+        print(f"开始处理模型: {model_version}")
+        print(f"强制重新下载: {force_download}")
+
+        # 创建 S3 客户端
+        try:
+            s3_client = boto3.client(
+                's3',
+                endpoint_url=s3_endpoint,
+                aws_access_key_id=r2_access_key,
+                aws_secret_access_key=r2_secret_key,
+                region_name='auto'
+            )
+            print("✅ S3 客户端创建成功")
+        except Exception as e:
+            print(f"❌ 创建 S3 客户端失败: {e}")
+            exit(1)
+
+        # 检查模型是否已存在
+        model_filename = f"ggml-{model_version}.bin"
+        model_key = f"models/{model_filename}"
+        
+        model_exists = False
+        try:
+            s3_client.head_object(Bucket=bucket_name, Key=model_key)
+            model_exists = True
+            print(f"✅ 模型文件已存在于 R2: {model_key}")
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                print(f"📥 模型文件不存在，需要下载: {model_key}")
+            else:
+                print(f"⚠️  检查模型文件时出错: {e}")
+
+        # 决定是否需要下载
+        should_download = not model_exists or force_download
+        
+        if not should_download:
+            print("⏭️  跳过下载，使用现有文件")
+            exit(0)
+        
+        print("🚀 开始下载模型...")
+
+        # 创建模型下载目录
+        models_dir = Path("models")
+        models_dir.mkdir(exist_ok=True)
         
         # 根据模型版本设置仓库和文件名
         model_repo_map = {
@@ -129,55 +158,54 @@ jobs:
             ]
         }
         
-        output_path = f"./models/ggml-{model_version}.bin"
+        output_path = models_dir / model_filename
         download_success = False
         
         # 尝试直接下载 GGUF 格式的模型
         if model_version in gguf_download_urls:
             for url in gguf_download_urls[model_version]:
                 try:
-                    print(f"正在从 {url} 下载模型...")
+                    print(f"📥 正在从 {url} 下载模型...")
                     urllib.request.urlretrieve(url, output_path)
                     
                     # 检查文件是否下载成功
-                    if os.path.exists(output_path) and os.path.getsize(output_path) > 1024*1024:  # 至少1MB
-                        print(f"模型下载成功: {output_path}")
-                        file_size = os.path.getsize(output_path)
-                        print(f"文件大小: {file_size / (1024*1024*1024):.2f} GB")
+                    if output_path.exists() and output_path.stat().st_size > 1024*1024:  # 至少1MB
+                        print(f"✅ 模型下载成功: {output_path}")
+                        file_size = output_path.stat().st_size
+                        print(f"📏 文件大小: {file_size / (1024*1024*1024):.2f} GB")
                         download_success = True
                         break
                     else:
-                        print(f"从 {url} 下载失败，尝试下一个URL...")
-                        if os.path.exists(output_path):
-                            os.remove(output_path)
+                        print(f"❌ 从 {url} 下载失败，尝试下一个URL...")
+                        if output_path.exists():
+                            output_path.unlink()
                         
                 except Exception as e:
-                    print(f"从 {url} 下载失败: {str(e)}")
-                    if os.path.exists(output_path):
-                        os.remove(output_path)
+                    print(f"❌ 从 {url} 下载失败: {str(e)}")
+                    if output_path.exists():
+                        output_path.unlink()
                     continue
         
         # 如果直接下载失败，尝试从 Hugging Face Hub 下载并转换
         if not download_success and model_version in model_repo_map:
             try:
-                print("尝试从 Hugging Face Hub 下载原始模型...")
+                print("📦 尝试从 Hugging Face Hub 下载原始模型...")
                 repo_id = model_repo_map[model_version]
                 
-                # 下载模型和处理器
-                print(f"正在下载 {repo_id}...")
+                print(f"🔄 正在下载 {repo_id}...")
                 processor = WhisperProcessor.from_pretrained(repo_id)
                 model = WhisperForConditionalGeneration.from_pretrained(repo_id)
                 
                 # 创建临时目录保存模型
-                temp_dir = f"./temp_model_{model_version}"
-                os.makedirs(temp_dir, exist_ok=True)
+                temp_dir = Path(f"temp_model_{model_version}")
+                temp_dir.mkdir(exist_ok=True)
                 
                 # 保存模型
                 model.save_pretrained(temp_dir)
                 processor.save_pretrained(temp_dir)
                 
-                print("模型下载完成，但需要手动转换为 GGUF 格式")
-                print("注意：这个模型是 PyTorch 格式，需要使用 whisper.cpp 工具转换为 GGUF 格式")
+                print("⚠️  模型下载完成，但需要手动转换为 GGUF 格式")
+                print("ℹ️  注意：这个模型是 PyTorch 格式，需要使用 whisper.cpp 工具转换为 GGUF 格式")
                 
                 # 清理临时目录
                 shutil.rmtree(temp_dir, ignore_errors=True)
@@ -190,151 +218,170 @@ jobs:
                 download_success = True
                 
             except Exception as e:
-                print(f"从 Hugging Face Hub 下载失败: {str(e)}")
+                print(f"❌ 从 Hugging Face Hub 下载失败: {str(e)}")
         
         if not download_success:
-            raise Exception(f"无法下载模型 {model_version}，所有下载方式都失败了")
+            print(f"❌ 无法下载模型 {model_version}，所有下载方式都失败了")
+            exit(1)
+
+        # 验证下载的模型文件
+        print("🔍 验证下载的模型文件...")
         
-        EOF
+        if not output_path.exists():
+            print("❌ 错误: 模型文件下载失败")
+            exit(1)
+            
+        file_size = output_path.stat().st_size
+        print(f"✅ 模型文件验证成功:")
+        print(f"   📁 文件路径: {output_path}")
+        print(f"   📏 文件大小: {file_size / (1024*1024):.1f} MB")
         
-    - name: 验证下载的模型文件
-      if: steps.check_model.outputs.should_download == 'true'
-      run: |
-        model_file="models/ggml-${{ github.event.inputs.model_version }}.bin"
+        # 计算 SHA256 校验和
+        sha256_hash = ""
+        if file_size > 1048576:  # 大于1MB
+            print("🔐 计算 SHA256 校验和...")
+            hash_sha256 = hashlib.sha256()
+            with open(output_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_sha256.update(chunk)
+            sha256_hash = hash_sha256.hexdigest()
+            print(f"   🔑 SHA256: {sha256_hash}")
+            
+            # 保存校验和文件
+            sha256_file = output_path.with_suffix('.bin.sha256')
+            with open(sha256_file, 'w') as f:
+                f.write(f"{sha256_hash}  {model_filename}\n")
+        else:
+            print(f"⚠️  警告: 文件大小可能不正确 ({file_size} bytes)")
+
+        # 上传模型到 Cloudflare R2
+        print("☁️  开始上传模型文件到 Cloudflare R2...")
         
-        if [ -f "$model_file" ]; then
-          echo "模型文件验证成功:"
-          ls -lh "$model_file"
-          
-          # 检查文件大小是否合理
-          file_size=$(stat -c%s "$model_file")
-          if [ $file_size -gt 1048576 ]; then  # 大于1MB
-            echo "计算 SHA256 校验和..."
-            sha256sum "$model_file" > "$model_file.sha256"
-            cat "$model_file.sha256"
-          else
-            echo "警告: 文件大小可能不正确 ($file_size bytes)"
-          fi
-        else
-          echo "错误: 模型文件下载失败"
-          exit 1
-        fi
+        try:
+            # 上传模型文件
+            print(f"📤 上传模型文件: {model_filename}")
+            with open(output_path, 'rb') as f:
+                s3_client.upload_fileobj(f, bucket_name, model_key)
+            print("✅ 模型文件上传完成")
+            
+            # 上传校验和文件
+            sha256_file = output_path.with_suffix('.bin.sha256')
+            if sha256_file.exists():
+                sha256_key = f"models/{model_filename}.sha256"
+                print(f"📤 上传校验和文件: {model_filename}.sha256")
+                with open(sha256_file, 'rb') as f:
+                    s3_client.upload_fileobj(f, bucket_name, sha256_key)
+                print("✅ 校验和文件上传完成")
+                
+        except Exception as e:
+            print(f"❌ 上传文件失败: {e}")
+            exit(1)
+
+        # 创建模型信息文件
+        print("📋 创建模型信息文件...")
         
-    - name: 上传模型到 Cloudflare R2
-      if: steps.check_model.outputs.should_download == 'true'
-      env:
-        S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-        R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      run: |
-        model_file="models/ggml-${{ github.event.inputs.model_version }}.bin"
-        sha256_file="$model_file.sha256"
+        # 格式化文件大小
+        def format_file_size(size_bytes):
+            if size_bytes >= 1024**3:
+                return f"{size_bytes / (1024**3):.1f}G"
+            elif size_bytes >= 1024**2:
+                return f"{size_bytes / (1024**2):.1f}M"
+            elif size_bytes >= 1024:
+                return f"{size_bytes / 1024:.1f}K"
+            else:
+                return f"{size_bytes}B"
         
-        echo "开始上传模型文件到 Cloudflare R2..."
-        
-        # 上传模型文件
-        if [ -f "$model_file" ]; then
-          aws s3 cp "$model_file" "s3://$R2_BUCKET/models/" --endpoint-url $S3_ENDPOINT
-          echo "模型文件上传完成"
-        fi
-        
-        # 上传校验和文件
-        if [ -f "$sha256_file" ]; then
-          aws s3 cp "$sha256_file" "s3://$R2_BUCKET/models/" --endpoint-url $S3_ENDPOINT
-          echo "校验和文件上传完成"
-        fi
-        
-    - name: 创建模型信息文件
-      env:
-        S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-        R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      run: |
-        model_version="${{ github.event.inputs.model_version }}"
-        model_file="models/ggml-$model_version.bin"
-        
-        # 获取文件信息
-        file_size=0
-        sha256_hash="unknown"
-        
-        if [ -f "$model_file" ]; then
-          file_size=$(stat -c%s "$model_file")
-        fi
-        
-        if [ -f "$model_file.sha256" ]; then
-          sha256_hash=$(cat "$model_file.sha256" | cut -d' ' -f1)
-        fi
-        
-        # 创建模型信息 JSON 文件
-        cat > model_info.json << EOF
-        {
-          "model_name": "whisper-$model_version",
-          "version": "$model_version",
-          "format": "gguf",
-          "file_name": "ggml-$model_version.bin",
-          "uploaded_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-          "upload_workflow": "${{ github.workflow }}",
-          "run_id": "${{ github.run_id }}",
-          "run_number": "${{ github.run_number }}",
-          "file_size_bytes": $file_size,
-          "file_size_human": "$(numfmt --to=iec $file_size 2>/dev/null || echo "unknown")",
-          "sha256": "$sha256_hash",
-          "download_url": "https://r2.your-domain.com/models/ggml-$model_version.bin",
-          "description": "Whisper $model_version GGUF format model for speech recognition",
-          "compatible_with": ["whisper.cpp", "llama.cpp", "candle-whisper"],
-          "license": "MIT",
-          "source": "OpenAI Whisper"
+        model_info = {
+            "model_name": f"whisper-{model_version}",
+            "version": model_version,
+            "format": "gguf",
+            "file_name": model_filename,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "upload_workflow": workflow_name,
+            "run_id": run_id,
+            "run_number": run_number,
+            "file_size_bytes": file_size,
+            "file_size_human": format_file_size(file_size),
+            "sha256": sha256_hash if sha256_hash else "unknown",
+            "download_url": f"https://velopack.miaostay.com/models/{model_filename}",
+            "description": f"Whisper {model_version} GGUF format model for speech recognition",
+            "compatible_with": ["whisper.cpp", "llama.cpp", "candle-whisper"],
+            "license": "MIT",
+            "source": "OpenAI Whisper"
         }
-        EOF
         
-        echo "模型信息文件内容:"
-        cat model_info.json | python -m json.tool 2>/dev/null || cat model_info.json
+        print("📄 模型信息文件内容:")
+        print(json.dumps(model_info, indent=2, ensure_ascii=False))
         
         # 上传模型信息文件
-        aws s3 cp model_info.json "s3://$R2_BUCKET/models/whisper-$model_version-info.json" --endpoint-url $S3_ENDPOINT
+        try:
+            info_key = f"models/whisper-{model_version}-info.json"
+            info_content = json.dumps(model_info, indent=2, ensure_ascii=False)
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=info_key,
+                Body=info_content.encode('utf-8'),
+                ContentType='application/json'
+            )
+            print("✅ 模型信息文件上传完成")
+        except Exception as e:
+            print(f"❌ 上传模型信息文件失败: {e}")
+
+        # 列出 R2 中的模型文件
+        print("📂 当前 R2 存储桶中的模型文件:")
+        try:
+            response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix="models/")
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    size_human = format_file_size(obj['Size'])
+                    print(f"   📄 {obj['Key']} ({size_human})")
+            else:
+                print("   📭 没有找到模型文件")
+        except Exception as e:
+            print(f"⚠️  列出文件失败: {e}")
+
+        # 生成 GitHub Actions 摘要
+        summary_lines = [
+            "## 🎉 Whisper 模型上传完成",
+            "",
+            "### 📋 上传详情",
+            f"- **模型版本**: {model_version}",
+            f"- **上传时间**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"- **工作流**: {workflow_name}",
+            f"- **运行 ID**: {run_id}",
+            f"- **运行编号**: {run_number}",
+            f"- **操作**: {'强制重新下载并上传' if force_download else '下载并上传新模型'}",
+            "",
+            "### 📁 文件位置",
+            f"- **模型文件**: `models/{model_filename}`",
+            f"- **校验和**: `models/{model_filename}.sha256`",
+            f"- **信息文件**: `models/whisper-{model_version}-info.json`",
+            "",
+            "### 📊 文件信息",
+            f"- **文件大小**: {format_file_size(file_size)}",
+            f"- **SHA256**: `{sha256_hash if sha256_hash else 'unknown'}`",
+            "",
+            "### 🔗 使用说明",
+            "模型文件已上传到 Cloudflare R2，可以在您的应用程序中使用以下 URL 访问:",
+            "```",
+            f"https://velopack.miaostay.com/models/{model_filename}",
+            "```",
+            "",
+            "### 🛠️ 兼容性",
+            "这个模型与以下工具兼容:",
+            "- whisper.cpp",
+            "- llama.cpp", 
+            "- candle-whisper",
+            "- 其他支持 GGUF 格式的推理引擎"
+        ]
         
-        echo "模型信息文件上传完成"
+        # 写入 GitHub Actions 摘要
+        summary_file = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary_file:
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(summary_lines))
+            print("📝 GitHub Actions 摘要已生成")
         
-    - name: 列出 R2 中的模型文件
-      env:
-        S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-        R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      run: |
-        echo "当前 R2 存储桶中的模型文件:"
-        aws s3 ls "s3://$R2_BUCKET/models/" --endpoint-url $S3_ENDPOINT --recursive --human-readable
+        print("🎊 模型处理完成！")
         
-    - name: 生成摘要报告
-      run: |
-        echo "## 🎉 Whisper 模型上传完成" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📋 上传详情" >> $GITHUB_STEP_SUMMARY
-        echo "- **模型版本**: ${{ github.event.inputs.model_version }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **上传时间**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
-        echo "- **工作流**: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **运行 ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **运行编号**: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-        
-        if [ "${{ steps.check_model.outputs.should_download }}" = "true" ]; then
-          echo "- **操作**: 下载并上传新模型" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "- **操作**: 模型已存在，跳过下载" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📁 文件位置" >> $GITHUB_STEP_SUMMARY
-        echo "- **模型文件**: \`models/ggml-${{ github.event.inputs.model_version }}.bin\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **校验和**: \`models/ggml-${{ github.event.inputs.model_version }}.bin.sha256\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **信息文件**: \`models/whisper-${{ github.event.inputs.model_version }}-info.json\`" >> $GITHUB_STEP_SUMMARY
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔗 使用说明" >> $GITHUB_STEP_SUMMARY
-        echo "模型文件已上传到 Cloudflare R2，可以在您的应用程序中使用以下 URL 访问:" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "https://your-r2-domain.com/models/ggml-${{ github.event.inputs.model_version }}.bin" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🛠️ 兼容性" >> $GITHUB_STEP_SUMMARY
-        echo "这个模型与以下工具兼容:" >> $GITHUB_STEP_SUMMARY
-        echo "- whisper.cpp" >> $GITHUB_STEP_SUMMARY
-        echo "- llama.cpp" >> $GITHUB_STEP_SUMMARY
-        echo "- candle-whisper" >> $GITHUB_STEP_SUMMARY
-        echo "- 其他支持 GGUF 格式的推理引擎" >> $GITHUB_STEP_SUMMARY 
+        EOF 
