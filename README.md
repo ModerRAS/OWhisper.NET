@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="OWhisper.NET/Resources/app_icon_super_256x256.png" alt="OWhisper.NET" width="128" height="128">
+
 ![OWhisper.NET Logo](https://img.shields.io/badge/OWhisper.NET-音频转写工具-blue?style=for-the-badge)
 
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-blue)](https://dotnet.microsoft.com/download/dotnet-framework)
