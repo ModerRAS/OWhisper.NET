@@ -124,64 +124,15 @@ namespace OWhisper.Core.Services
 
             try
             {
-                // 创建下载器实例并下载模型
-                using var httpClient = HttpClientHelper.CreateProxyHttpClient();
-                httpClient.Timeout = TimeSpan.FromMinutes(10);
-                var downloader = new WhisperGgmlDownloader(httpClient);
-                using var modelStream = await downloader.GetGgmlModelAsync(modelType);
-
-                var tempFilePath = Path.Combine(targetModelsDir, $"{ModelName}.tmp");
-
-                try
+                // 对于 large-v3-turbo 模型，使用 R2 直接下载
+                if (modelType == GgmlType.LargeV3Turbo)
                 {
-                    using (var fileWriter = File.OpenWrite(tempFilePath))
-                    {
-                        var buffer = new byte[8192];
-                        long totalBytes = 0;
-                        int bytesRead;
-
-                        while ((bytesRead = await modelStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-                        {
-                            await fileWriter.WriteAsync(buffer, 0, bytesRead);
-                            totalBytes += bytesRead;
-
-                            if (DateTime.UtcNow - downloadStartTime > TimeSpan.FromSeconds(5))
-                            {
-                                Log.Information("已下载: {DownloadedMB}MB", totalBytes / (1024 * 1024));
-                                downloadStartTime = DateTime.UtcNow;
-                            }
-                        }
-                    }
-
-                    var finalPath = Path.Combine(targetModelsDir, ModelName);
-                    if (File.Exists(finalPath))
-                    {
-                        File.Delete(finalPath);
-                    }
-                    File.Move(tempFilePath, finalPath);
-                    
-                    // 验证下载文件的SHA256
-                    Log.Information("正在验证下载文件的SHA256...");
-                    if (!VerifyModelSha256(finalPath))
-                    {
-                        Log.Error("下载的模型文件SHA256校验失败，删除损坏的文件");
-                        if (File.Exists(finalPath))
-                        {
-                            File.Delete(finalPath);
-                        }
-                        throw new AudioProcessingException("MODEL_VERIFICATION_FAILED", "下载的模型文件SHA256校验失败，可能文件已损坏");
-                    }
-                    
-                    Log.Information("模型下载完成并校验通过，保存到: {ModelPath}", finalPath);
+                    await DownloadFromR2Async(targetModelsDir, downloadStartTime);
                 }
-                catch (IOException ex)
+                else
                 {
-                    if (File.Exists(tempFilePath))
-                    {
-                        File.Delete(tempFilePath);
-                    }
-                    Log.Error(ex, "文件写入失败");
-                    throw new AudioProcessingException("MODEL_WRITE_FAILED", $"模型文件写入失败: {ex.Message}");
+                    // 其他模型使用原来的下载方式
+                    await DownloadFromWhisperGgmlAsync(modelType, targetModelsDir, downloadStartTime);
                 }
             }
             catch (System.Net.Http.HttpRequestException ex)
@@ -198,6 +149,154 @@ namespace OWhisper.Core.Services
             {
                 Log.Error(ex, "下载过程中发生未知错误");
                 throw new AudioProcessingException("DOWNLOAD_FAILED", $"模型下载失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 从 R2 存储下载 large-v3-turbo 模型
+        /// </summary>
+        private async Task DownloadFromR2Async(string targetModelsDir, DateTime downloadStartTime)
+        {
+            const string R2_BASE_URL = "https://velopack.miaostay.com";
+            var modelUrl = $"{R2_BASE_URL}/models/{ModelName}";
+            var tempFilePath = Path.Combine(targetModelsDir, $"{ModelName}.tmp");
+            var finalPath = Path.Combine(targetModelsDir, ModelName);
+
+            Log.Information("从 R2 存储下载模型: {ModelUrl}", modelUrl);
+
+            using var httpClient = HttpClientHelper.CreateProxyHttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(10);
+
+            try
+            {
+                using var response = await httpClient.GetAsync(modelUrl, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                var totalBytes = response.Content.Headers.ContentLength ?? 0;
+                Log.Information("模型文件大小: {TotalSizeMB}MB", totalBytes / (1024 * 1024));
+
+                using var contentStream = await response.Content.ReadAsStreamAsync();
+                using var fileWriter = File.Create(tempFilePath);
+                
+                var buffer = new byte[8192];
+                long downloadedBytes = 0;
+                int bytesRead;
+                var lastProgressTime = downloadStartTime;
+
+                while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await fileWriter.WriteAsync(buffer, 0, bytesRead);
+                    downloadedBytes += bytesRead;
+
+                    // 每5秒报告一次进度
+                    if (DateTime.UtcNow - lastProgressTime > TimeSpan.FromSeconds(5))
+                    {
+                        var progressPercent = totalBytes > 0 ? (downloadedBytes * 100.0 / totalBytes) : 0;
+                        Log.Information("下载进度: {DownloadedMB}MB / {TotalMB}MB ({Progress:F1}%)", 
+                            downloadedBytes / (1024 * 1024), 
+                            totalBytes / (1024 * 1024), 
+                            progressPercent);
+                        lastProgressTime = DateTime.UtcNow;
+                    }
+                }
+
+                // 移动临时文件到最终位置
+                if (File.Exists(finalPath))
+                {
+                    File.Delete(finalPath);
+                }
+                File.Move(tempFilePath, finalPath);
+
+                Log.Information("模型下载完成，总大小: {TotalMB}MB", downloadedBytes / (1024 * 1024));
+                
+                // 验证下载文件的SHA256
+                Log.Information("正在验证下载文件的SHA256...");
+                if (!VerifyModelSha256(finalPath))
+                {
+                    Log.Error("下载的模型文件SHA256校验失败，删除损坏的文件");
+                    if (File.Exists(finalPath))
+                    {
+                        File.Delete(finalPath);
+                    }
+                    throw new AudioProcessingException("MODEL_VERIFICATION_FAILED", "下载的模型文件SHA256校验失败，可能文件已损坏");
+                }
+                
+                Log.Information("模型下载完成并校验通过，保存到: {ModelPath}", finalPath);
+            }
+            catch (IOException ex)
+            {
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+                Log.Error(ex, "文件写入失败");
+                throw new AudioProcessingException("MODEL_WRITE_FAILED", $"模型文件写入失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 使用原来的 WhisperGgmlDownloader 下载其他模型
+        /// </summary>
+        private async Task DownloadFromWhisperGgmlAsync(GgmlType modelType, string targetModelsDir, DateTime downloadStartTime)
+        {
+            // 创建下载器实例并下载模型
+            using var httpClient = HttpClientHelper.CreateProxyHttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(10);
+            var downloader = new WhisperGgmlDownloader(httpClient);
+            using var modelStream = await downloader.GetGgmlModelAsync(modelType);
+
+            var tempFilePath = Path.Combine(targetModelsDir, $"{ModelName}.tmp");
+
+            try
+            {
+                using (var fileWriter = File.OpenWrite(tempFilePath))
+                {
+                    var buffer = new byte[8192];
+                    long totalBytes = 0;
+                    int bytesRead;
+
+                    while ((bytesRead = await modelStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                    {
+                        await fileWriter.WriteAsync(buffer, 0, bytesRead);
+                        totalBytes += bytesRead;
+
+                        if (DateTime.UtcNow - downloadStartTime > TimeSpan.FromSeconds(5))
+                        {
+                            Log.Information("已下载: {DownloadedMB}MB", totalBytes / (1024 * 1024));
+                            downloadStartTime = DateTime.UtcNow;
+                        }
+                    }
+                }
+
+                var finalPath = Path.Combine(targetModelsDir, ModelName);
+                if (File.Exists(finalPath))
+                {
+                    File.Delete(finalPath);
+                }
+                File.Move(tempFilePath, finalPath);
+                
+                // 验证下载文件的SHA256
+                Log.Information("正在验证下载文件的SHA256...");
+                if (!VerifyModelSha256(finalPath))
+                {
+                    Log.Error("下载的模型文件SHA256校验失败，删除损坏的文件");
+                    if (File.Exists(finalPath))
+                    {
+                        File.Delete(finalPath);
+                    }
+                    throw new AudioProcessingException("MODEL_VERIFICATION_FAILED", "下载的模型文件SHA256校验失败，可能文件已损坏");
+                }
+                
+                Log.Information("模型下载完成并校验通过，保存到: {ModelPath}", finalPath);
+            }
+            catch (IOException ex)
+            {
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+                Log.Error(ex, "文件写入失败");
+                throw new AudioProcessingException("MODEL_WRITE_FAILED", $"模型文件写入失败: {ex.Message}");
             }
         }
 
