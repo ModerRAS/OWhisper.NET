@@ -149,7 +149,7 @@ namespace OWhisper.Core.IntegrationTests.Services
             Task.Delay(100).Wait();
 
             // Queue length should remain the same after start/stop
-            _queueService.GetQueueLength().Should().BeGreaterOrEqualTo(0);
+            _queueService.GetQueueLength().Should().BeGreaterThanOrEqualTo(0);
         }
 
         private byte[] CreateSimpleWavData()

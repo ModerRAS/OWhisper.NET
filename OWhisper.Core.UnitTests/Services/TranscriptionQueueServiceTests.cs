@@ -137,7 +137,7 @@ namespace OWhisper.Core.UnitTests.Services
             var length = _service.GetQueueLength();
 
             // Assert
-            length.Should().BeGreaterOrEqualTo(0);
+            length.Should().BeGreaterThanOrEqualTo(0);
         }
 
         [Fact]
