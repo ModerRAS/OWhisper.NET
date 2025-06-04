@@ -153,7 +153,7 @@ namespace OWhisper.Core.Services
         }
 
         /// <summary>
-        /// 从 R2 存储下载 large-v3-turbo 模型
+        /// 从 R2 存储下载 large-v3-turbo 模型（多线程下载）
         /// </summary>
         private async Task DownloadFromR2Async(string targetModelsDir, DateTime downloadStartTime)
         {
@@ -164,64 +164,35 @@ namespace OWhisper.Core.Services
 
             Log.Information("从 R2 存储下载模型: {ModelUrl}", modelUrl);
 
-            using var httpClient = HttpClientHelper.CreateProxyHttpClient();
-            httpClient.Timeout = TimeSpan.FromSeconds(10);
-
             try
             {
-                using var response = await httpClient.GetAsync(modelUrl, HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
-
-                var totalBytes = response.Content.Headers.ContentLength ?? 0;
-                Log.Information("模型文件大小: {TotalSizeMB}MB", totalBytes / (1024 * 1024));
-
-                using var contentStream = await response.Content.ReadAsStreamAsync();
-                using var fileWriter = File.Create(tempFilePath);
+                // 先获取文件大小，检查是否支持范围请求
+                using var headClient = HttpClientHelper.CreateProxyHttpClient();
+                headClient.Timeout = TimeSpan.FromSeconds(30);
                 
-                var buffer = new byte[8192];
-                long downloadedBytes = 0;
-                int bytesRead;
-                var lastProgressTime = downloadStartTime;
+                using var headResponse = await headClient.SendAsync(new HttpRequestMessage(HttpMethod.Head, modelUrl));
+                headResponse.EnsureSuccessStatusCode();
 
-                while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                var totalBytes = headResponse.Content.Headers.ContentLength ?? 0;
+                var supportsRangeRequests = headResponse.Headers.AcceptRanges?.Contains("bytes") == true;
+
+                Log.Information("模型文件大小: {TotalSizeMB}MB, 支持分片下载: {SupportsRange}", 
+                    totalBytes / (1024 * 1024), supportsRangeRequests);
+
+                if (totalBytes == 0)
                 {
-                    await fileWriter.WriteAsync(buffer, 0, bytesRead);
-                    downloadedBytes += bytesRead;
-
-                    // 每5秒报告一次进度
-                    if (DateTime.UtcNow - lastProgressTime > TimeSpan.FromSeconds(5))
-                    {
-                        var progressPercent = totalBytes > 0 ? (downloadedBytes * 100.0 / totalBytes) : 0;
-                        Log.Information("下载进度: {DownloadedMB}MB / {TotalMB}MB ({Progress:F1}%)", 
-                            downloadedBytes / (1024 * 1024), 
-                            totalBytes / (1024 * 1024), 
-                            progressPercent);
-                        lastProgressTime = DateTime.UtcNow;
-                    }
+                    throw new AudioProcessingException("DOWNLOAD_FAILED", "无法获取文件大小");
                 }
 
-                // 移动临时文件到最终位置
-                if (File.Exists(finalPath))
+                // 如果不支持范围请求或文件较小，使用单线程下载
+                if (!supportsRangeRequests || totalBytes < 50 * 1024 * 1024) // 50MB
                 {
-                    File.Delete(finalPath);
+                    await DownloadSingleThreadedAsync(modelUrl, tempFilePath, finalPath, totalBytes, downloadStartTime);
                 }
-                File.Move(tempFilePath, finalPath);
-
-                Log.Information("模型下载完成，总大小: {TotalMB}MB", downloadedBytes / (1024 * 1024));
-                
-                // 验证下载文件的SHA256
-                Log.Information("正在验证下载文件的SHA256...");
-                if (!VerifyModelSha256(finalPath))
+                else
                 {
-                    Log.Error("下载的模型文件SHA256校验失败，删除损坏的文件");
-                    if (File.Exists(finalPath))
-                    {
-                        File.Delete(finalPath);
-                    }
-                    throw new AudioProcessingException("MODEL_VERIFICATION_FAILED", "下载的模型文件SHA256校验失败，可能文件已损坏");
+                    await DownloadMultiThreadedAsync(modelUrl, tempFilePath, finalPath, totalBytes, downloadStartTime);
                 }
-                
-                Log.Information("模型下载完成并校验通过，保存到: {ModelPath}", finalPath);
             }
             catch (IOException ex)
             {
@@ -232,6 +203,216 @@ namespace OWhisper.Core.Services
                 Log.Error(ex, "文件写入失败");
                 throw new AudioProcessingException("MODEL_WRITE_FAILED", $"模型文件写入失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 单线程下载（备用方案）
+        /// </summary>
+        private async Task DownloadSingleThreadedAsync(string modelUrl, string tempFilePath, string finalPath, long totalBytes, DateTime downloadStartTime)
+        {
+            Log.Information("使用单线程下载");
+            
+            using var httpClient = HttpClientHelper.CreateProxyHttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(10);
+
+            using var response = await httpClient.GetAsync(modelUrl, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            using var contentStream = await response.Content.ReadAsStreamAsync();
+            using var fileWriter = File.Create(tempFilePath);
+            
+            var buffer = new byte[64 * 1024]; // 64KB buffer
+            long downloadedBytes = 0;
+            int bytesRead;
+            var lastProgressTime = downloadStartTime;
+
+            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                await fileWriter.WriteAsync(buffer, 0, bytesRead);
+                downloadedBytes += bytesRead;
+
+                // 每3秒报告一次进度
+                if (DateTime.UtcNow - lastProgressTime > TimeSpan.FromSeconds(3))
+                {
+                    var progressPercent = totalBytes > 0 ? (downloadedBytes * 100.0 / totalBytes) : 0;
+                    var speed = downloadedBytes / (DateTime.UtcNow - downloadStartTime).TotalSeconds / (1024 * 1024);
+                    Log.Information("下载进度: {DownloadedMB}MB / {TotalMB}MB ({Progress:F1}%) - 速度: {Speed:F1}MB/s", 
+                        downloadedBytes / (1024 * 1024), 
+                        totalBytes / (1024 * 1024), 
+                        progressPercent,
+                        speed);
+                    lastProgressTime = DateTime.UtcNow;
+                }
+            }
+
+            await CompleteDownload(tempFilePath, finalPath, downloadedBytes, downloadStartTime);
+        }
+
+        /// <summary>
+        /// 多线程分片下载
+        /// </summary>
+        private async Task DownloadMultiThreadedAsync(string modelUrl, string tempFilePath, string finalPath, long totalBytes, DateTime downloadStartTime)
+        {
+            const int threadCount = 4; // 使用4个线程
+            const long minChunkSize = 10 * 1024 * 1024; // 最小分片10MB
+            
+            var chunkSize = Math.Max(totalBytes / threadCount, minChunkSize);
+            var actualThreadCount = (int)Math.Min(threadCount, (totalBytes + chunkSize - 1) / chunkSize);
+            
+            Log.Information("使用多线程下载: {ThreadCount}个线程, 分片大小: {ChunkSizeMB}MB", 
+                actualThreadCount, chunkSize / (1024 * 1024));
+
+            // 创建临时文件
+            using var tempFile = File.Create(tempFilePath);
+            tempFile.SetLength(totalBytes);
+            tempFile.Close();
+
+            // 创建下载任务
+            var downloadTasks = new List<Task>();
+            var progressLock = new object();
+            var totalDownloaded = 0L;
+            var lastProgressTime = downloadStartTime;
+
+            for (int i = 0; i < actualThreadCount; i++)
+            {
+                var threadIndex = i;
+                var start = threadIndex * chunkSize;
+                var end = Math.Min(start + chunkSize - 1, totalBytes - 1);
+                
+                if (start > totalBytes - 1) break;
+
+                var task = DownloadChunkAsync(modelUrl, tempFilePath, start, end, threadIndex, 
+                    (downloaded) =>
+                    {
+                        lock (progressLock)
+                        {
+                            totalDownloaded += downloaded;
+                            
+                            // 每2秒报告一次总进度
+                            if (DateTime.UtcNow - lastProgressTime > TimeSpan.FromSeconds(2))
+                            {
+                                var progressPercent = totalBytes > 0 ? (totalDownloaded * 100.0 / totalBytes) : 0;
+                                var elapsed = DateTime.UtcNow - downloadStartTime;
+                                var speed = totalDownloaded / elapsed.TotalSeconds / (1024 * 1024);
+                                var eta = speed > 0 ? TimeSpan.FromSeconds((totalBytes - totalDownloaded) / (speed * 1024 * 1024)) : TimeSpan.Zero;
+                                
+                                Log.Information("多线程下载进度: {DownloadedMB}MB / {TotalMB}MB ({Progress:F1}%) - 速度: {Speed:F1}MB/s - 预计剩余: {ETA}", 
+                                    totalDownloaded / (1024 * 1024), 
+                                    totalBytes / (1024 * 1024), 
+                                    progressPercent,
+                                    speed,
+                                    eta.ToString(@"mm\:ss"));
+                                lastProgressTime = DateTime.UtcNow;
+                            }
+                        }
+                    });
+                
+                downloadTasks.Add(task);
+            }
+
+            // 等待所有下载任务完成
+            await Task.WhenAll(downloadTasks);
+            
+            await CompleteDownload(tempFilePath, finalPath, totalBytes, downloadStartTime);
+        }
+
+        /// <summary>
+        /// 下载单个分片
+        /// </summary>
+        private async Task DownloadChunkAsync(string url, string tempFilePath, long start, long end, int threadIndex, Action<long> progressCallback)
+        {
+            var chunkSize = end - start + 1;
+            Log.Information("线程 {ThreadIndex}: 下载分片 {Start}-{End} ({ChunkSizeMB}MB)", 
+                threadIndex, start, end, chunkSize / (1024 * 1024));
+
+            using var httpClient = HttpClientHelper.CreateProxyHttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(5);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(start, end);
+
+            var retryCount = 0;
+            const int maxRetries = 3;
+
+            while (retryCount < maxRetries)
+            {
+                try
+                {
+                    using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                    if (response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+                    {
+                        throw new HttpRequestException($"服务器不支持范围请求，状态码: {response.StatusCode}");
+                    }
+
+                    using var contentStream = await response.Content.ReadAsStreamAsync();
+                    using var fileStream = new FileStream(tempFilePath, FileMode.Open, FileAccess.Write, FileShare.Write);
+                    
+                    fileStream.Seek(start, SeekOrigin.Begin);
+                    
+                    var buffer = new byte[32 * 1024]; // 32KB buffer
+                    long bytesDownloaded = 0;
+                    int bytesRead;
+
+                    while (bytesDownloaded < chunkSize && (bytesRead = await contentStream.ReadAsync(buffer, 0, 
+                        (int)Math.Min(buffer.Length, chunkSize - bytesDownloaded))) > 0)
+                    {
+                        await fileStream.WriteAsync(buffer, 0, bytesRead);
+                        bytesDownloaded += bytesRead;
+                        progressCallback(bytesRead);
+                    }
+
+                    Log.Information("线程 {ThreadIndex}: 分片下载完成 ({BytesMB}MB)", 
+                        threadIndex, bytesDownloaded / (1024 * 1024));
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    retryCount++;
+                    Log.Warning("线程 {ThreadIndex}: 下载分片失败，重试 {Retry}/{MaxRetries}: {Error}", 
+                        threadIndex, retryCount, maxRetries, ex.Message);
+                    
+                    if (retryCount >= maxRetries)
+                    {
+                        Log.Error("线程 {ThreadIndex}: 分片下载彻底失败", threadIndex);
+                        throw;
+                    }
+                    
+                    await Task.Delay(1000 * retryCount); // 递增延迟
+                }
+            }
+        }
+
+        /// <summary>
+        /// 完成下载，验证并移动文件
+        /// </summary>
+        private async Task CompleteDownload(string tempFilePath, string finalPath, long totalBytes, DateTime downloadStartTime)
+        {
+            var elapsed = DateTime.UtcNow - downloadStartTime;
+            var avgSpeed = totalBytes / elapsed.TotalSeconds / (1024 * 1024);
+            
+            Log.Information("模型下载完成，总大小: {TotalMB}MB, 耗时: {Elapsed}, 平均速度: {Speed:F1}MB/s", 
+                totalBytes / (1024 * 1024), elapsed.ToString(@"mm\:ss"), avgSpeed);
+            
+            // 验证下载文件的SHA256
+            Log.Information("正在验证下载文件的SHA256...");
+            if (!VerifyModelSha256(tempFilePath))
+            {
+                Log.Error("下载的模型文件SHA256校验失败，删除损坏的文件");
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+                throw new AudioProcessingException("MODEL_VERIFICATION_FAILED", "下载的模型文件SHA256校验失败，可能文件已损坏");
+            }
+            
+            // 移动临时文件到最终位置
+            if (File.Exists(finalPath))
+            {
+                File.Delete(finalPath);
+            }
+            File.Move(tempFilePath, finalPath);
+            
+            Log.Information("模型下载完成并校验通过，保存到: {ModelPath}", finalPath);
         }
 
         /// <summary>
