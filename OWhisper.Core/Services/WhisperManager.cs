@@ -41,7 +41,8 @@ namespace OWhisper.Core.Services
             try
             {
                 using var sha256 = SHA256.Create();
-                using var stream = File.OpenRead(filePath);
+                // 使用 FileShare.Read 允许其他进程同时读取文件
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 var hash = sha256.ComputeHash(stream);
                 return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
             }
@@ -200,75 +201,6 @@ namespace OWhisper.Core.Services
                     Log.Information("使用代理: {ProxyAddress}", proxyHandler.Proxy.GetProxy(new Uri(modelUrl)));
                 }
 
-                // 创建下载服务
-                using var downloader = new DownloadService(downloadOpt);
-
-                // 设置进度事件处理
-                var lastProgressTime = downloadStartTime;
-                var lastDownloadedBytes = 0L;
-
-                downloader.DownloadProgressChanged += (sender, e) =>
-                {
-                    var now = DateTime.UtcNow;
-                    
-                    // 每2秒报告一次进度
-                    if (now - lastProgressTime > TimeSpan.FromSeconds(2))
-                    {
-                        var currentSpeed = (e.ReceivedBytesSize - lastDownloadedBytes) / (now - lastProgressTime).TotalSeconds / (1024 * 1024);
-                        var avgSpeed = e.AverageBytesPerSecondSpeed / (1024 * 1024);
-                        var eta = e.AverageBytesPerSecondSpeed > 0 ? 
-                            TimeSpan.FromSeconds((e.TotalBytesToReceive - e.ReceivedBytesSize) / e.AverageBytesPerSecondSpeed) : 
-                            TimeSpan.Zero;
-
-                        Log.Information("下载进度: {DownloadedMB}MB / {TotalMB}MB ({Progress:F1}%) - 当前速度: {CurrentSpeed:F1}MB/s - 平均速度: {AvgSpeed:F1}MB/s - 活跃分片: {ActiveChunks} - 预计剩余: {ETA}", 
-                            e.ReceivedBytesSize / (1024 * 1024),
-                            e.TotalBytesToReceive / (1024 * 1024),
-                            e.ProgressPercentage,
-                            currentSpeed,
-                            avgSpeed,
-                            e.ActiveChunks,
-                            eta.ToString(@"mm\:ss"));
-
-                        lastProgressTime = now;
-                        lastDownloadedBytes = e.ReceivedBytesSize;
-                    }
-                };
-
-                downloader.DownloadStarted += (sender, e) =>
-                {
-                    Log.Information("开始下载: 文件大小 {TotalMB}MB, 支持分片: {SupportsRange}, 分片数: {ChunkCount}",
-                        e.TotalBytesToReceive / (1024 * 1024),
-                        e.TotalBytesToReceive > 0,
-                        downloadOpt.ChunkCount);
-                };
-
-                downloader.DownloadFileCompleted += (sender, e) =>
-                {
-                    if (e.Error != null)
-                    {
-                        Log.Error(e.Error, "下载完成但有错误");
-                    }
-                    else
-                    {
-                        // 在 Downloader 3.1.2 中，AsyncCompletedEventArgs 没有 FileName 属性
-                        Log.Information("下载成功完成");
-                    }
-                };
-
-                downloader.ChunkDownloadProgressChanged += (sender, e) =>
-                {
-                    // 可选：记录单个分片的详细进度（仅在调试时启用）
-                    if (Log.IsEnabled(Serilog.Events.LogEventLevel.Debug))
-                    {
-                        // 在 Downloader 3.1.2 中，DownloadProgressChangedEventArgs 没有 Id 属性，使用其他标识符
-                        Log.Debug("分片进度: {Progress:F1}% ({ReceivedMB}MB / {TotalMB}MB) - 速度: {Speed:F1}KB/s",
-                            e.ProgressPercentage, 
-                            e.ReceivedBytesSize / (1024 * 1024), 
-                            e.TotalBytesToReceive / (1024 * 1024),
-                            e.AverageBytesPerSecondSpeed / 1024);
-                    }
-                };
-
                 // 检查是否存在未完成的下载包（断点续传）
                 DownloadPackage? package = null;
                 if (File.Exists(packageFilePath))
@@ -297,29 +229,100 @@ namespace OWhisper.Core.Services
                     }
                 }
 
-                // 开始下载（支持断点续传）
-                // 注意：在 Downloader 3.1.2 中，DownloadFileTaskAsync 返回 void 而不是 DownloadPackage
-                if (package != null)
+                // 执行下载 - 缩小 using 作用域到只有下载阶段
+                DownloadPackage? resultPackage = null;
+                var lastProgressTime = downloadStartTime;
+                var lastDownloadedBytes = 0L;
+
+                using (var downloader = new DownloadService(downloadOpt))
                 {
-                    Log.Information("继续断点续传下载...");
-                    await downloader.DownloadFileTaskAsync(package);
-                    // 由于返回类型是 void，我们需要重新获取 package 信息
-                    package = downloader.Package;
-                }
-                else
-                {
-                    Log.Information("开始新的多线程下载...");
-                    await downloader.DownloadFileTaskAsync(modelUrl, tempFilePath);
-                    // 获取下载后的 package 信息
-                    package = downloader.Package;
-                }
+                    // 设置进度事件处理
+                    downloader.DownloadProgressChanged += (sender, e) =>
+                    {
+                        var now = DateTime.UtcNow;
+                        
+                        // 每2秒报告一次进度
+                        if (now - lastProgressTime > TimeSpan.FromSeconds(2))
+                        {
+                            var currentSpeed = (e.ReceivedBytesSize - lastDownloadedBytes) / (now - lastProgressTime).TotalSeconds / (1024 * 1024);
+                            var avgSpeed = e.AverageBytesPerSecondSpeed / (1024 * 1024);
+                            var eta = e.AverageBytesPerSecondSpeed > 0 ? 
+                                TimeSpan.FromSeconds((e.TotalBytesToReceive - e.ReceivedBytesSize) / e.AverageBytesPerSecondSpeed) : 
+                                TimeSpan.Zero;
+
+                            Log.Information("下载进度: {DownloadedMB}MB / {TotalMB}MB ({Progress:F1}%) - 当前速度: {CurrentSpeed:F1}MB/s - 平均速度: {AvgSpeed:F1}MB/s - 活跃分片: {ActiveChunks} - 预计剩余: {ETA}", 
+                                e.ReceivedBytesSize / (1024 * 1024),
+                                e.TotalBytesToReceive / (1024 * 1024),
+                                e.ProgressPercentage,
+                                currentSpeed,
+                                avgSpeed,
+                                e.ActiveChunks,
+                                eta.ToString(@"mm\:ss"));
+
+                            lastProgressTime = now;
+                            lastDownloadedBytes = e.ReceivedBytesSize;
+                        }
+                    };
+
+                    downloader.DownloadStarted += (sender, e) =>
+                    {
+                        Log.Information("开始下载: 文件大小 {TotalMB}MB, 支持分片: {SupportsRange}, 分片数: {ChunkCount}",
+                            e.TotalBytesToReceive / (1024 * 1024),
+                            e.TotalBytesToReceive > 0,
+                            downloadOpt.ChunkCount);
+                    };
+
+                    downloader.DownloadFileCompleted += (sender, e) =>
+                    {
+                        if (e.Error != null)
+                        {
+                            Log.Error(e.Error, "下载完成但有错误");
+                        }
+                        else
+                        {
+                            // 在 Downloader 3.1.2 中，AsyncCompletedEventArgs 没有 FileName 属性
+                            Log.Information("下载成功完成");
+                        }
+                    };
+
+                    downloader.ChunkDownloadProgressChanged += (sender, e) =>
+                    {
+                        // 可选：记录单个分片的详细进度（仅在调试时启用）
+                        if (Log.IsEnabled(Serilog.Events.LogEventLevel.Debug))
+                        {
+                            // 在 Downloader 3.1.2 中，DownloadProgressChangedEventArgs 没有 Id 属性，使用其他标识符
+                            Log.Debug("分片进度: {Progress:F1}% ({ReceivedMB}MB / {TotalMB}MB) - 速度: {Speed:F1}KB/s",
+                                e.ProgressPercentage, 
+                                e.ReceivedBytesSize / (1024 * 1024), 
+                                e.TotalBytesToReceive / (1024 * 1024),
+                                e.AverageBytesPerSecondSpeed / 1024);
+                        }
+                    };
+
+                    // 开始下载（支持断点续传）
+                    // 注意：在 Downloader 3.1.2 中，DownloadFileTaskAsync 返回 void 而不是 DownloadPackage
+                    if (package != null)
+                    {
+                        Log.Information("继续断点续传下载...");
+                        await downloader.DownloadFileTaskAsync(package);
+                        // 由于返回类型是 void，我们需要重新获取 package 信息
+                        resultPackage = downloader.Package;
+                    }
+                    else
+                    {
+                        Log.Information("开始新的多线程下载...");
+                        await downloader.DownloadFileTaskAsync(modelUrl, tempFilePath);
+                        // 获取下载后的 package 信息
+                        resultPackage = downloader.Package;
+                    }
+                } // DownloadService 在这里被释放
 
                 // 保存下载包信息（用于断点续传）
-                if (package != null)
+                if (resultPackage != null)
                 {
                     try
                     {
-                        var packageJson = Newtonsoft.Json.JsonConvert.SerializeObject(package, Newtonsoft.Json.Formatting.Indented);
+                        var packageJson = Newtonsoft.Json.JsonConvert.SerializeObject(resultPackage, Newtonsoft.Json.Formatting.Indented);
 #if NET8_0_OR_GREATER
                         await File.WriteAllTextAsync(packageFilePath, packageJson);
 #else
