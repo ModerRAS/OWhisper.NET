@@ -42,10 +42,10 @@ namespace IntegrationTests
 
             var (exists, valid, size, path) = _whisperManager.CheckModelStatus();
 
-            Assert.IsFalse(exists, "文件不应该存在");
-            Assert.IsFalse(valid, "不存在的文件应该被标记为无效");
-            Assert.AreEqual(0, size, "不存在文件的大小应该为0");
-            Assert.AreEqual(_testModelPath, path, "路径应该匹配");
+            Assert.That(exists, Is.False, "文件不应该存在");
+            Assert.That(valid, Is.False, "不存在的文件应该被标记为无效");
+            Assert.That(size, Is.EqualTo(0), "不存在文件的大小应该为0");
+            Assert.That(path, Is.EqualTo(_testModelPath), "路径应该匹配");
         }
 
         [Test]
@@ -57,10 +57,10 @@ namespace IntegrationTests
 
             var (exists, valid, size, path) = _whisperManager.CheckModelStatus();
 
-            Assert.IsTrue(exists, "文件应该存在");
-            Assert.IsFalse(valid, "损坏的文件应该被标记为无效");
-            Assert.IsTrue(size > 0, "文件大小应该大于0");
-            Assert.AreEqual(_testModelPath, path, "路径应该匹配");
+            Assert.That(exists, Is.True, "文件应该存在");
+            Assert.That(valid, Is.False, "损坏的文件应该被标记为无效");
+            Assert.That(size, Is.GreaterThan(0), "文件大小应该大于0");
+            Assert.That(path, Is.EqualTo(_testModelPath), "路径应该匹配");
 
             // 清理
             File.Delete(_testModelPath);
@@ -75,10 +75,10 @@ namespace IntegrationTests
 
             var (exists, valid, size, path) = _whisperManager.CheckModelStatus();
 
-            Assert.IsTrue(exists, "文件应该存在");
-            Assert.IsFalse(valid, "太小的文件应该被标记为无效");
-            Assert.AreEqual(1024, size, "文件大小应该为1024字节");
-            Assert.AreEqual(_testModelPath, path, "路径应该匹配");
+            Assert.That(exists, Is.True, "文件应该存在");
+            Assert.That(valid, Is.False, "太小的文件应该被标记为无效");
+            Assert.That(size, Is.EqualTo(1024), "文件大小应该为1024字节");
+            Assert.That(path, Is.EqualTo(_testModelPath), "路径应该匹配");
 
             // 清理
             File.Delete(_testModelPath);

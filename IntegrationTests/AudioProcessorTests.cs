@@ -26,15 +26,15 @@ namespace IntegrationTests {
 
             var result = AudioProcessor.ProcessAudio(audioBytes);
 
-            Assert.IsNotNull(result);
-            Assert.IsTrue(result.Length > 0);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Length, Is.GreaterThan(0));
 
             // 验证输出格式为16kHz单声道WAV
             using (var stream = new MemoryStream(result))
             using (var reader = new WaveFileReader(stream)) {
-                Assert.AreEqual(16000, reader.WaveFormat.SampleRate);
-                Assert.AreEqual(1, reader.WaveFormat.Channels);
-                Assert.AreEqual(16, reader.WaveFormat.BitsPerSample);
+                Assert.That(reader.WaveFormat.SampleRate, Is.EqualTo(16000));
+                Assert.That(reader.WaveFormat.Channels, Is.EqualTo(1));
+                Assert.That(reader.WaveFormat.BitsPerSample, Is.EqualTo(16));
             }
         }
 
@@ -61,7 +61,7 @@ namespace IntegrationTests {
 
             // 验证临时文件已被清理
             var finalTempFiles = Directory.GetFiles(tempDir, "OWhisper_*.tmp").Length;
-            Assert.AreEqual(initialTempFiles, finalTempFiles);
+            Assert.That(finalTempFiles, Is.EqualTo(initialTempFiles));
         }
 
         public void Dispose() {
