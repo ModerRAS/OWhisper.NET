@@ -244,6 +244,7 @@ namespace OWhisper.Core.Services
                 var allSrtSegments = new List<string>();
                 var allPlainTextSegments = new List<string>();
                 var totalProcessedDuration = 0.0;
+                var srtEntryCount = 0; // 用于跟踪SRT条目数量，确保序号连续
                 
                 for (int i = 0; i < segments.Count; i++)
                 {
@@ -261,12 +262,18 @@ namespace OWhisper.Core.Services
                             Log.Information("分段 {Index} 原始时间: {StartTime} - {EndTime}", i + 1, segment.StartTime, segment.EndTime);
                             Log.Information("分段 {Index} 原始SRT内容:\n{SrtContent}", i + 1, segmentSrt);
                             
-                            var adjustedSrt = AdjustSrtTimestamps(segmentSrt, segment.StartTime, allSrtSegments.Count);
+                            var adjustedSrt = AdjustSrtTimestamps(segmentSrt, segment.StartTime, srtEntryCount);
                             
                             Log.Information("分段 {Index} 调整后SRT内容:\n{AdjustedSrt}", i + 1, string.Join("\n", adjustedSrt));
                             
                             allSrtSegments.AddRange(adjustedSrt);
                             allPlainTextSegments.Add(segmentText.Trim());
+                            
+                            // 更新SRT条目计数（计算这个分段产生了多少个SRT条目）
+                            var entryCount = segmentSrt.Split(new char[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                                .Count(line => int.TryParse(line.Trim(), out _));
+                            srtEntryCount += entryCount;
+                            Log.Information("分段 {Index} 产生了 {EntryCount} 个SRT条目，总条目数: {TotalEntries}", i + 1, entryCount, srtEntryCount);
                         }
                         
                         // 更新总体进度
