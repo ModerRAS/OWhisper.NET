@@ -268,7 +268,17 @@ namespace OWhisper.NET
             };
             btnDownloadSelected.Click += BtnDownloadSelected_Click;
             
-            panel.Controls.AddRange(new Control[] { titleLabel, listViewModels, btnDownloadSelected });
+            var btnDownloadInBrowser = new Button
+            {
+                Text = "在浏览器中下载",
+                Location = new Point(140, panel.Height - 40),
+                Size = new Size(130, 30),
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
+                BackColor = Color.LightSkyBlue
+            };
+            btnDownloadInBrowser.Click += BtnDownloadInBrowser_Click;
+            
+            panel.Controls.AddRange(new Control[] { titleLabel, listViewModels, btnDownloadSelected, btnDownloadInBrowser });
             
             return panel;
         }
@@ -609,6 +619,54 @@ namespace OWhisper.NET
             }
             
             _ = DownloadModelAsync(config);
+        }
+
+        private void BtnDownloadInBrowser_Click(object sender, EventArgs e)
+        {
+            if (listViewModels.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("请选择要下载的模型", "提示", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            
+            var selectedItem = listViewModels.SelectedItems[0];
+            var config = selectedItem.Tag as ModelConfig;
+            
+            if (string.IsNullOrEmpty(config.DownloadUrl))
+            {
+                MessageBox.Show("该模型没有可用的下载链接", "提示", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            
+            try
+            {
+                // 在默认浏览器中打开下载链接
+                System.Diagnostics.Process.Start(config.DownloadUrl);
+                
+                // 显示提示信息
+                var message = $"已在浏览器中打开模型下载页面：\n\n" +
+                             $"模型：{config.Name}\n" +
+                             $"文件名：{config.FileName}\n" +
+                             $"大小：{config.Size}\n\n" +
+                             $"下载完成后，请使用\"导入模型文件\"功能将文件导入到应用程序中。";
+                
+                MessageBox.Show(message, "浏览器下载", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "打开浏览器下载链接失败");
+                
+                // 如果无法打开浏览器，显示下载链接供用户复制
+                var fallbackMessage = $"无法自动打开浏览器，请手动复制以下链接到浏览器中下载：\n\n" +
+                                     $"{config.DownloadUrl}\n\n" +
+                                     $"下载完成后，请使用\"导入模型文件\"功能导入。";
+                
+                MessageBox.Show(fallbackMessage, "下载链接", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
 
         private async Task DownloadModelAsync(ModelConfig config)
