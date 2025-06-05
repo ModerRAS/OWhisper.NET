@@ -258,7 +258,13 @@ namespace OWhisper.Core.Services
                         if (!string.IsNullOrWhiteSpace(segmentText))
                         {
                             // 调整SRT时间戳
+                            Log.Information("分段 {Index} 原始时间: {StartTime} - {EndTime}", i + 1, segment.StartTime, segment.EndTime);
+                            Log.Information("分段 {Index} 原始SRT内容:\n{SrtContent}", i + 1, segmentSrt);
+                            
                             var adjustedSrt = AdjustSrtTimestamps(segmentSrt, segment.StartTime, allSrtSegments.Count);
+                            
+                            Log.Information("分段 {Index} 调整后SRT内容:\n{AdjustedSrt}", i + 1, string.Join("\n", adjustedSrt));
+                            
                             allSrtSegments.AddRange(adjustedSrt);
                             allPlainTextSegments.Add(segmentText.Trim());
                         }
@@ -318,10 +324,19 @@ namespace OWhisper.Core.Services
         private List<string> AdjustSrtTimestamps(string srtContent, TimeSpan segmentStartTime, int startId)
         {
             var result = new List<string>();
-            if (string.IsNullOrWhiteSpace(srtContent)) return result;
+            if (string.IsNullOrWhiteSpace(srtContent)) 
+            {
+                Log.Warning("SRT内容为空，无法调整时间戳");
+                return result;
+            }
+            
+            Log.Information("开始调整SRT时间戳 - 分段开始时间: {SegmentStartTime}, 起始ID: {StartId}", segmentStartTime, startId);
+            Log.Information("原始SRT内容长度: {Length}字符", srtContent.Length);
             
             var lines = srtContent.Split(new char[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
             var currentId = startId + 1;
+            
+            Log.Information("分割后共 {Count} 行", lines.Length);
             
             for (int i = 0; i < lines.Length; i++)
             {
@@ -331,6 +346,7 @@ namespace OWhisper.Core.Services
                 if (int.TryParse(line, out _))
                 {
                     result.Add(currentId.ToString());
+                    Log.Information("调整序号: {OriginalId} -> {NewId}", line, currentId);
                     currentId++;
                 }
                 // 检查是否是时间戳行
@@ -338,11 +354,13 @@ namespace OWhisper.Core.Services
                 {
                     var adjustedTimestamp = AdjustTimestamp(line, segmentStartTime);
                     result.Add(adjustedTimestamp);
+                    Log.Information("调整时间戳: {Original} -> {Adjusted}", line, adjustedTimestamp);
                 }
                 // 其他行（文本内容）
                 else
                 {
                     result.Add(line);
+                    Log.Information("保持文本行: {Text}", line);
                 }
                 
                 // 在每个SRT条目后添加空行
@@ -353,6 +371,7 @@ namespace OWhisper.Core.Services
                 }
             }
             
+            Log.Information("时间戳调整完成，共生成 {Count} 行", result.Count);
             return result;
         }
 
@@ -383,17 +402,41 @@ namespace OWhisper.Core.Services
         /// </summary>
         private TimeSpan ParseSrtTimestamp(string timestamp)
         {
-            // 格式: hh:mm:ss,fff
-            var parts = timestamp.Split(':');
-            if (parts.Length != 3) throw new FormatException($"无效时间戳格式: {timestamp}");
-            
-            var hours = int.Parse(parts[0]);
-            var minutes = int.Parse(parts[1]);
-            var secondsParts = parts[2].Split(',');
-            var seconds = int.Parse(secondsParts[0]);
-            var milliseconds = secondsParts.Length > 1 ? int.Parse(secondsParts[1]) : 0;
-            
-            return new TimeSpan(0, hours, minutes, seconds, milliseconds);
+            try
+            {
+                Log.Information("解析时间戳: {Timestamp}", timestamp);
+                
+                // 支持多种格式: hh:mm:ss,fff 或 hh:mm:ss.fff
+                timestamp = timestamp.Replace('.', ','); // 统一使用逗号分隔符
+                
+                var parts = timestamp.Split(':');
+                if (parts.Length != 3) 
+                {
+                    Log.Error("时间戳格式错误，应为 hh:mm:ss,fff 格式: {Timestamp}", timestamp);
+                    throw new FormatException($"无效时间戳格式: {timestamp}");
+                }
+                
+                var hours = int.Parse(parts[0]);
+                var minutes = int.Parse(parts[1]);
+                var secondsParts = parts[2].Split(',');
+                var seconds = int.Parse(secondsParts[0]);
+                var milliseconds = 0;
+                
+                if (secondsParts.Length > 1)
+                {
+                    var msString = secondsParts[1].PadRight(3, '0').Substring(0, 3); // 确保3位数
+                    milliseconds = int.Parse(msString);
+                }
+                
+                var result = new TimeSpan(0, hours, minutes, seconds, milliseconds);
+                Log.Information("时间戳解析结果: {Result}", result);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "解析时间戳失败: {Timestamp}", timestamp);
+                throw;
+            }
         }
 
         /// <summary>

@@ -106,29 +106,34 @@ namespace OWhisper.Core.Controllers
                 try 
                 {
                     // 使用更安全的方式访问VAD参数
-                    foreach (var param in parser.Parameters)
+                    var vadParam = parser.Parameters.FirstOrDefault(p => p.Name == "enable_vad");
+                    if (vadParam != null)
                     {
-                        if (param.Name == "enable_vad")
+                        try
                         {
-                            try
+                            // vadParam.Data 是字符串类型，直接使用
+                            var value = vadParam.Data;
+                            
+                            if (!string.IsNullOrWhiteSpace(value))
                             {
-                                using (var reader = new StreamReader(param.Data))
+                                if (bool.TryParse(value.Trim(), out var parsedVad))
                                 {
-                                    var value = await reader.ReadToEndAsync();
-                                    if (!string.IsNullOrWhiteSpace(value))
-                                    {
-                                        if (bool.TryParse(value.Trim(), out var parsedVad))
-                                        {
-                                            enableVad = parsedVad;
-                                        }
-                                    }
+                                    enableVad = parsedVad;
+                                    Log.Information("成功解析VAD参数: {EnableVad}", enableVad);
+                                }
+                                else
+                                {
+                                    Log.Warning("无法解析VAD参数值: {Value}, 使用默认值", value);
                                 }
                             }
-                            catch (Exception paramEx)
+                            else
                             {
-                                Log.Warning(paramEx, "解析单个VAD参数失败");
+                                Log.Warning("VAD参数值为空，使用默认值: {DefaultValue}", enableVad);
                             }
-                            break;
+                        }
+                        catch (Exception paramEx)
+                        {
+                            Log.Warning(paramEx, "解析单个VAD参数失败");
                         }
                     }
                 }
