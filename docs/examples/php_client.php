@@ -56,6 +56,9 @@ class OWhisperClient {
             case 'aac':
                 $cfile->setMimeType('audio/aac');
                 break;
+            case 'm4a':
+                $cfile->setMimeType('audio/aac');
+                break;
         }
 
         $postData = ['file' => $cfile];

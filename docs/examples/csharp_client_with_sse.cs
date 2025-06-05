@@ -76,6 +76,7 @@ namespace OWhisper.Examples
                 ".mp3" => new System.Net.Http.Headers.MediaTypeHeaderValue("audio/mpeg"),
                 ".wav" => new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav"),
                 ".aac" => new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac"),
+                ".m4a" => new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac"),
                 _ => new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream")
             };
 

@@ -178,7 +178,7 @@
             //
             // openFileDialog
             //
-            this.openFileDialog.Filter = "音频文件 (*.mp3;*.wav;*.aac)|*.mp3;*.wav;*.aac|MP3文件 (*.mp3)|*.mp3|WAV文件 (*.wav)|*.wav|AAC文件 (*.aac)|*.aac|所有文件 (*.*)|*.*";
+            this.openFileDialog.Filter = "音频文件 (*.mp3;*.wav;*.aac;*.m4a)|*.mp3;*.wav;*.aac;*.m4a|MP3文件 (*.mp3)|*.mp3|WAV文件 (*.wav)|*.wav|AAC文件 (*.aac)|*.aac|M4A文件 (*.m4a)|*.m4a|所有文件 (*.*)|*.*";
             this.openFileDialog.Title = "选择音频文件";
             this.openFileDialog.DefaultExt = "mp3";
             this.openFileDialog.CheckFileExists = true;

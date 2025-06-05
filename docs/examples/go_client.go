@@ -91,6 +91,8 @@ func (c *OWhisperClient) TranscribeFile(filePath string) (*ApiResponse, error) {
         contentType = "audio/wav"
     case ".aac":
         contentType = "audio/aac"
+    case ".m4a":
+        contentType = "audio/aac"
     }
 
     part, err := writer.CreateFormFile("file", filepath.Base(filePath))

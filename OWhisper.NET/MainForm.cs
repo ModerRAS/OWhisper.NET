@@ -395,6 +395,9 @@ namespace OWhisper.NET
                     case ".aac":
                         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
                         break;
+                    case ".m4a":
+                        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
+                        break;
                     default:
                         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
                         break;

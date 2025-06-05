@@ -61,6 +61,10 @@ namespace OWhisper.Examples
                     fileContent.Headers.ContentType = 
                         new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
                     break;
+                case ".m4a":
+                    fileContent.Headers.ContentType = 
+                        new System.Net.Http.Headers.MediaTypeHeaderValue("audio/aac");
+                    break;
             }
 
             form.Add(fileContent, "file", Path.GetFileName(filePath));

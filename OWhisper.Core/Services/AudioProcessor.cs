@@ -56,6 +56,7 @@ namespace OWhisper.Core.Services
                         ".mp3" => TryCreateMp3Reader(inputStream),
                         ".wav" => new WaveFileReader(inputStream),
                         ".aac" => TryCreateMediaFoundationReader(inputStream),
+                        ".m4a" => TryCreateMediaFoundationReader(inputStream),
                         _ => TryCreateMediaFoundationReader(inputStream) ?? new WaveFileReader(inputStream)
                     };
 

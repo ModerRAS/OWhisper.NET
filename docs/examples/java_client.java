@@ -56,6 +56,8 @@ public class OWhisperClient {
             contentType = "audio/wav";
         } else if (fileName.endsWith(".aac")) {
             contentType = "audio/aac";
+        } else if (fileName.endsWith(".m4a")) {
+            contentType = "audio/aac";
         }
 
         RequestBody fileBody = RequestBody.create(

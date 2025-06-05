@@ -236,6 +236,7 @@ export OWHISPER_PORT=8080
 | MP3  | .mp3   | audio/mpeg   |
 | WAV  | .wav   | audio/wav    |
 | AAC  | .aac   | audio/aac    |
+| M4A  | .m4a   | audio/aac    |
 
 ## 📝 输出格式说明
 

@@ -95,10 +95,10 @@ namespace OWhisper.Core.Controllers
 
                 // 验证文件格式
                 var fileName = filePart.FileName?.ToLower() ?? string.Empty;
-                if (!fileName.EndsWith(".mp3") && !fileName.EndsWith(".wav") && !fileName.EndsWith(".aac"))
+                if (!fileName.EndsWith(".mp3") && !fileName.EndsWith(".wav") && !fileName.EndsWith(".aac") && !fileName.EndsWith(".m4a"))
                 {
                     Log.Error("不支持的文件格式: {FileName}", fileName);
-                    throw new AudioProcessingException("UNSUPPORTED_FILE_FORMAT", "仅支持.mp3、.wav和.aac格式");
+                    throw new AudioProcessingException("UNSUPPORTED_FILE_FORMAT", "仅支持.mp3、.wav、.aac和.m4a格式");
                 }
 
                 // 读取文件数据

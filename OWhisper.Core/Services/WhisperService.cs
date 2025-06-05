@@ -130,10 +130,10 @@ namespace OWhisper.Core.Services
             Log.Information("验证音频数据格式...");
             bool isMp3 = IsValidMp3(audioData);
             bool isWav = IsValidWav(audioData);
-            bool isAac = IsValidAac(audioData);
-            Log.Information("音频格式检测 - MP3: {IsMp3}, WAV: {IsWav}, AAC: {IsAac}", isMp3, isWav, isAac);
+            bool isAacOrM4a = IsValidAac(audioData);
+            Log.Information("音频格式检测 - MP3: {IsMp3}, WAV: {IsWav}, AAC/M4A: {IsAacOrM4a}", isMp3, isWav, isAacOrM4a);
 
-            if (!isMp3 && !isWav && !isAac)
+            if (!isMp3 && !isWav && !isAacOrM4a)
             {
                 Log.Error("不支持的音频格式");
                 throw new AudioProcessingException("INVALID_AUDIO_FORMAT", "不支持的音频格式");
