@@ -13,6 +13,8 @@ namespace OWhisper.NET {
         private IWebApiService webApiService;
         private UpdateManager updateManager; // 添加更新管理器字段
         private MainForm debugForm;
+        private QueueManagerForm queueManagerForm; // 添加队列管理窗口
+        private ModelManagerForm modelManagerForm; // 添加模型管理窗口
 
         public TrayApp() : this(null, null) {
         }
@@ -39,9 +41,16 @@ namespace OWhisper.NET {
             trayMenu.Items.Add("停止服务", null, OnStopService);
             trayMenu.Items.Add("-"); // 分隔线
             
-            // 添加更新管理菜单项
+            // 添加队列识别功能
+            trayMenu.Items.Add("队列识别", null, OnShowQueueManager);
+            trayMenu.Items.Add("-"); // 分隔线
+            
+            // 添加模型管理功能
+            trayMenu.Items.Add("模型管理", null, OnShowModelManager);
+            trayMenu.Items.Add("-"); // 分隔线
+            
+            // 修改更新管理菜单项 - 只保留检查更新
             trayMenu.Items.Add("检查更新", null, OnCheckUpdates);
-            trayMenu.Items.Add("下载更新", null, OnDownloadUpdates);
             trayMenu.Items.Add("重启应用", null, OnRestartApply);
             trayMenu.Items.Add("-"); // 分隔线
             
@@ -145,6 +154,24 @@ namespace OWhisper.NET {
             debugForm.ShowForDebug();
         }
 
+        // 添加显示队列管理窗口的方法
+        private void OnShowQueueManager(object sender, EventArgs e) {
+            if (queueManagerForm == null || queueManagerForm.IsDisposed) {
+                queueManagerForm = new QueueManagerForm();
+            }
+            queueManagerForm.Show();
+            queueManagerForm.Activate();
+        }
+
+        // 添加显示模型管理窗口的方法
+        private void OnShowModelManager(object sender, EventArgs e) {
+            if (modelManagerForm == null || modelManagerForm.IsDisposed) {
+                modelManagerForm = new ModelManagerForm();
+            }
+            modelManagerForm.Show();
+            modelManagerForm.Activate();
+        }
+
         private void OnExit(object sender, EventArgs e) {
             trayIcon.Visible = false;
             Program.ExitApplication();
@@ -153,15 +180,6 @@ namespace OWhisper.NET {
         // 更新管理功能
         private void OnCheckUpdates(object sender, EventArgs e) {
             _ = Program.CheckForUpdatesAsync();
-        }
-        
-        private async void OnDownloadUpdates(object sender, EventArgs e) {
-            if (Program._updateInfo != null) {
-                await Program.DownloadUpdatesAsync();
-            } else {
-                MessageBox.Show("请先检查更新", "提示",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
         }
         
         private void OnRestartApply(object sender, EventArgs e) {
@@ -193,6 +211,14 @@ namespace OWhisper.NET {
                     // 释放调试窗口
                     debugForm?.Dispose();
                     debugForm = null;
+
+                    // 释放队列管理窗口
+                    queueManagerForm?.Dispose();
+                    queueManagerForm = null;
+
+                    // 释放模型管理窗口
+                    modelManagerForm?.Dispose();
+                    modelManagerForm = null;
 
                     Console.WriteLine("TrayApp资源释放完成");
                 }
