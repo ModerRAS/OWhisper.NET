@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using NAudio.Wave;
+using Serilog;
 
 namespace OWhisper.Core.Services
 {
@@ -26,6 +29,99 @@ namespace OWhisper.Core.Services
             catch (Exception ex)
             {
                 throw new InvalidOperationException("获取音频时长失败", ex);
+            }
+        }
+
+        /// <summary>
+        /// 使用VAD对音频进行分段处理
+        /// </summary>
+        /// <param name="audioData">16kHz单声道PCM音频数据</param>
+        /// <param name="enableVad">是否启用VAD分段</param>
+        /// <param name="vadSettings">VAD配置参数</param>
+        /// <returns>音频分段列表，如果不启用VAD则返回包含原始音频的单个分段</returns>
+        public static List<AudioSegment> ProcessAudioWithVad(byte[] audioData, bool enableVad = true, VadSettings vadSettings = null)
+        {
+            if (audioData == null || audioData.Length == 0)
+            {
+                throw new ArgumentException("音频数据不能为空");
+            }
+
+            var segments = new List<AudioSegment>();
+
+            if (!enableVad)
+            {
+                // 不使用VAD，返回完整音频作为单个分段
+                Log.Information("VAD未启用，返回完整音频作为单个分段");
+                
+                TimeSpan totalDuration;
+                try
+                {
+                    using var stream = new MemoryStream(audioData);
+                    using var reader = new WaveFileReader(stream);
+                    totalDuration = reader.TotalTime;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "无法获取音频时长，使用默认值");
+                    totalDuration = TimeSpan.FromSeconds(60); // 默认值
+                }
+
+                segments.Add(new AudioSegment
+                {
+                    StartTime = TimeSpan.Zero,
+                    EndTime = totalDuration,
+                    AudioData = audioData,
+                    HasSpeech = true,
+                    AverageEnergy = 0.5 // 默认能量值
+                });
+
+                return segments;
+            }
+
+            try
+            {
+                // 自动选择VAD设置
+                if (vadSettings == null)
+                {
+                    TimeSpan duration;
+                    try
+                    {
+                        using var stream = new MemoryStream(audioData);
+                        using var reader = new WaveFileReader(stream);
+                        duration = reader.TotalTime;
+                    }
+                    catch
+                    {
+                        duration = TimeSpan.FromSeconds(60); // 默认值
+                    }
+                    
+                    vadSettings = VoiceActivityDetector.GetRecommendedSettings(duration.TotalSeconds);
+                    Log.Information("使用推荐VAD设置 - 音频时长: {Duration}秒, 最大分段: {MaxSegment}秒", 
+                        duration.TotalSeconds, vadSettings.MaxSegmentDuration);
+                }
+
+                // 使用VAD进行分段
+                var vad = new VoiceActivityDetector(vadSettings);
+                segments = vad.SegmentAudio(audioData);
+
+                // 过滤掉静音段（如果设置了移除静音段）
+                if (vadSettings.RemoveSilentSegments)
+                {
+                    var speechSegments = segments.Where(s => s.HasSpeech).ToList();
+                    Log.Information("VAD分段完成 - 总分段: {Total}, 语音分段: {Speech}, 静音分段: {Silent}", 
+                        segments.Count, speechSegments.Count, segments.Count - speechSegments.Count);
+                    return speechSegments;
+                }
+
+                Log.Information("VAD分段完成 - 共 {Count} 个分段", segments.Count);
+                return segments;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "VAD处理失败，回退到不使用VAD");
+                
+                // VAD失败时回退到原始处理方式
+                return ProcessAudioWithVad(audioData, false, null);
             }
         }
 

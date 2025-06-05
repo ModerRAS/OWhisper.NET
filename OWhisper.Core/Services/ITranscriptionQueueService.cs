@@ -8,7 +8,7 @@ namespace OWhisper.Core.Services
     {
         event EventHandler<TranscriptionTask> ProgressUpdated;
         
-        string EnqueueTask(byte[] audioData, string fileName, string language = null, string model = null);
+        string EnqueueTask(byte[] audioData, string fileName, string language = null, string model = null, bool enableVad = true);
         TranscriptionTask GetTask(string taskId);
         List<TranscriptionTask> GetAllTasks();
         bool CancelTask(string taskId);

@@ -101,6 +101,44 @@ namespace OWhisper.Core.Controllers
                     throw new AudioProcessingException("UNSUPPORTED_FILE_FORMAT", "仅支持.mp3、.wav、.aac和.m4a格式");
                 }
 
+                // 检查VAD参数
+                bool enableVad = true;
+                try 
+                {
+                    // 使用更安全的方式访问VAD参数
+                    foreach (var param in parser.Parameters)
+                    {
+                        if (param.Name == "enable_vad")
+                        {
+                            try
+                            {
+                                using (var reader = new StreamReader(param.Data))
+                                {
+                                    var value = await reader.ReadToEndAsync();
+                                    if (!string.IsNullOrWhiteSpace(value))
+                                    {
+                                        if (bool.TryParse(value.Trim(), out var parsedVad))
+                                        {
+                                            enableVad = parsedVad;
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception paramEx)
+                            {
+                                Log.Warning(paramEx, "解析单个VAD参数失败");
+                            }
+                            break;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "解析VAD参数时发生未知错误，使用默认值: {DefaultValue}", enableVad);
+                }
+                
+                Log.Information("VAD设置: 启用={EnableVad}", enableVad);
+
                 // 读取文件数据
                 byte[] audioData;
                 using (var memoryStream = new MemoryStream())
@@ -122,7 +160,7 @@ namespace OWhisper.Core.Controllers
                 audioData = AudioProcessor.ProcessAudio(audioData, fileName);
 
                 // 将任务加入队列
-                var taskId = _queueService.EnqueueTask(audioData, fileName);
+                var taskId = _queueService.EnqueueTask(audioData, fileName, null, null, enableVad);
                 var task = _queueService.GetTask(taskId);
 
                 Log.Information("任务已入队: {TaskId}", taskId);

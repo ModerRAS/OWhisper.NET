@@ -22,6 +22,7 @@ namespace OWhisper.Core.Services
         private readonly ConcurrentDictionary<string, TranscriptionTask> _tasks = new ConcurrentDictionary<string, TranscriptionTask>();
         private readonly ConcurrentQueue<string> _taskQueue = new ConcurrentQueue<string>();
         private readonly ConcurrentDictionary<string, byte[]> _audioDataCache = new ConcurrentDictionary<string, byte[]>();
+        private readonly ConcurrentDictionary<string, bool> _vadSettingsCache = new ConcurrentDictionary<string, bool>();
         private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
         private readonly SemaphoreSlim _processingLock = new SemaphoreSlim(1, 1);
         private Task _processingTask;
@@ -31,7 +32,7 @@ namespace OWhisper.Core.Services
         {
         }
 
-        public string EnqueueTask(byte[] audioData, string fileName, string language = null, string model = null)
+        public string EnqueueTask(byte[] audioData, string fileName, string language = null, string model = null, bool enableVad = true)
         {
             // 参数验证
             if (audioData == null)
@@ -50,8 +51,9 @@ namespace OWhisper.Core.Services
                 Status = TaskStatus.Queued
             };
 
-            // 存储音频数据到缓存
+            // 存储音频数据和VAD设置到缓存
             _audioDataCache[task.Id] = audioData;
+            _vadSettingsCache[task.Id] = enableVad;
 
             _tasks[task.Id] = task;
             _taskQueue.Enqueue(task.Id);
@@ -185,11 +187,13 @@ namespace OWhisper.Core.Services
 
                 Log.Information("开始处理任务: {TaskId}", task.Id);
 
-                // 获取缓存的音频数据
+                // 获取缓存的音频数据和VAD设置
                 if (!_audioDataCache.TryGetValue(task.Id, out var audioData))
                 {
                     throw new Exception("未找到音频数据");
                 }
+                
+                var enableVad = _vadSettingsCache.TryGetValue(task.Id, out var vadSetting) ? vadSetting : true;
 
                 // 使用实际的Whisper转录服务
                 var whisperService = WhisperService.Instance;
@@ -205,8 +209,8 @@ namespace OWhisper.Core.Services
 
                 try
                 {
-                    Log.Information("开始转录音频，大小: {Size}字节", audioData.Length);
-                    var result = await whisperService.Transcribe(audioData);
+                    Log.Information("开始转录音频，大小: {Size}字节, VAD启用: {EnableVad}", audioData.Length, enableVad);
+                    var result = await whisperService.Transcribe(audioData, enableVad);
                     
                     if (result == null)
                     {
@@ -233,8 +237,9 @@ namespace OWhisper.Core.Services
                 finally
                 {
                     whisperService.ProgressChanged -= progressHandler;
-                    // 清理音频数据缓存
+                    // 清理音频数据和VAD设置缓存
                     _audioDataCache.TryRemove(task.Id, out _);
+                    _vadSettingsCache.TryRemove(task.Id, out _);
                 }
             }
             catch (Exception ex)
@@ -245,8 +250,9 @@ namespace OWhisper.Core.Services
                 task.ErrorMessage = ex.Message;
                 task.CompletedAt = DateTime.Now;
                 
-                // 清理音频数据缓存
+                // 清理音频数据和VAD设置缓存
                 _audioDataCache.TryRemove(task.Id, out _);
+                _vadSettingsCache.TryRemove(task.Id, out _);
             }
             finally
             {

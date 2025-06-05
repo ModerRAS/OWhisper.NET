@@ -123,8 +123,10 @@ namespace OWhisper.Core.Services
         /// 转录音频数据为文本
         /// </summary>
         /// <param name="audioData">音频数据</param>
+        /// <param name="enableVad">是否启用VAD分段处理</param>
+        /// <param name="vadSettings">VAD配置参数</param>
         /// <returns>转写文本</returns>
-        public async Task<TranscriptionResult> Transcribe(byte[] audioData)
+        public async Task<TranscriptionResult> Transcribe(byte[] audioData, bool enableVad = true, VadSettings vadSettings = null)
         {
             // 前置音频验证
             Log.Information("验证音频数据格式...");
@@ -147,23 +149,34 @@ namespace OWhisper.Core.Services
                 File.WriteAllBytes(tempFilePath, audioData);
                 TimeSpan totalDuration = AudioProcessor.GetAudioDuration(tempFilePath);
                 totalMs = totalDuration.TotalMilliseconds;
-                Log.Information("音频总时长: {TotalMs}ms", totalMs);
+                Log.Information("音频总时长: {TotalMs}ms, VAD启用: {VadEnabled}", totalMs, enableVad);
 
                 var startTime = DateTime.UtcNow;
                 using var whisperManager = new WhisperManager(_platformPathService);
-                var (srtContent, plainText) = await whisperManager.Transcribe(audioData, (progress) =>
-                {
-                    // 触发进度事件
-                    ProgressChanged?.Invoke(this, progress);
-                }, totalMs);
 
-                return new TranscriptionResult
+                // 使用VAD进行音频分段处理
+                if (enableVad && totalMs > 30000) // 大于30秒的音频才使用VAD
                 {
-                    Success = true,
-                    Text = plainText,
-                    SrtContent = srtContent,
-                    ProcessingTime = (DateTime.UtcNow - startTime).TotalSeconds
-                };
+                    Log.Information("使用VAD进行音频分段处理");
+                    return await TranscribeWithVad(audioData, vadSettings, whisperManager, totalMs, startTime);
+                }
+                else
+                {
+                    Log.Information("不使用VAD，直接进行转录");
+                    var (srtContent, plainText) = await whisperManager.Transcribe(audioData, (progress) =>
+                    {
+                        // 触发进度事件
+                        ProgressChanged?.Invoke(this, progress);
+                    }, totalMs);
+
+                    return new TranscriptionResult
+                    {
+                        Success = true,
+                        Text = plainText,
+                        SrtContent = srtContent,
+                        ProcessingTime = (DateTime.UtcNow - startTime).TotalSeconds
+                    };
+                }
             }
             catch (Exception ex)
             {
@@ -185,6 +198,209 @@ namespace OWhisper.Core.Services
                     Log.Error(ex, "删除临时文件失败");
                 }
             }
+        }
+
+        /// <summary>
+        /// 转录音频数据为文本 (向后兼容方法)
+        /// </summary>
+        /// <param name="audioData">音频数据</param>
+        /// <returns>转写文本</returns>
+        public async Task<TranscriptionResult> Transcribe(byte[] audioData)
+        {
+            return await Transcribe(audioData, true, null);
+        }
+
+        /// <summary>
+        /// 使用VAD分段进行转录
+        /// </summary>
+        private async Task<TranscriptionResult> TranscribeWithVad(byte[] audioData, VadSettings vadSettings, 
+            WhisperManager whisperManager, double totalMs, DateTime startTime)
+        {
+            try
+            {
+                // 使用VAD对音频进行分段
+                var segments = AudioProcessor.ProcessAudioWithVad(audioData, true, vadSettings);
+                
+                if (segments == null || segments.Count == 0)
+                {
+                    Log.Warning("VAD未产生任何分段，回退到完整音频转录");
+                    var (srtContent, plainText) = await whisperManager.Transcribe(audioData, (progress) =>
+                    {
+                        ProgressChanged?.Invoke(this, progress);
+                    }, totalMs);
+
+                    return new TranscriptionResult
+                    {
+                        Success = true,
+                        Text = plainText,
+                        SrtContent = srtContent,
+                        ProcessingTime = (DateTime.UtcNow - startTime).TotalSeconds
+                    };
+                }
+
+                Log.Information("开始分段转录，共 {Count} 个分段", segments.Count);
+                
+                var allSrtSegments = new List<string>();
+                var allPlainTextSegments = new List<string>();
+                var totalProcessedDuration = 0.0;
+                
+                for (int i = 0; i < segments.Count; i++)
+                {
+                    var segment = segments[i];
+                    Log.Information("正在处理分段 {Index}/{Total}: {Segment}", i + 1, segments.Count, segment);
+                    
+                    try
+                    {
+                        // 转录当前分段
+                        var (segmentSrt, segmentText) = await whisperManager.Transcribe(segment.AudioData, null, 0);
+                        
+                        if (!string.IsNullOrWhiteSpace(segmentText))
+                        {
+                            // 调整SRT时间戳
+                            var adjustedSrt = AdjustSrtTimestamps(segmentSrt, segment.StartTime, allSrtSegments.Count);
+                            allSrtSegments.AddRange(adjustedSrt);
+                            allPlainTextSegments.Add(segmentText.Trim());
+                        }
+                        
+                        // 更新总体进度
+                        totalProcessedDuration += segment.Duration.TotalMilliseconds;
+                        var overallProgress = (float)(totalProcessedDuration / totalMs * 100);
+                        ProgressChanged?.Invoke(this, overallProgress);
+                        
+                        Log.Information("分段 {Index} 转录完成，文本长度: {Length}", i + 1, segmentText?.Length ?? 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "分段 {Index} 转录失败: {Segment}", i + 1, segment);
+                        // 继续处理下一个分段
+                    }
+                }
+                
+                // 合并结果
+                var finalSrtContent = string.Join("\n", allSrtSegments);
+                var finalPlainText = string.Join(" ", allPlainTextSegments);
+                
+                Log.Information("VAD分段转录完成 - 总分段: {SegmentCount}, 有效文本分段: {TextSegmentCount}", 
+                    segments.Count, allPlainTextSegments.Count);
+                
+                return new TranscriptionResult
+                {
+                    Success = true,
+                    Text = finalPlainText,
+                    SrtContent = finalSrtContent,
+                    ProcessingTime = (DateTime.UtcNow - startTime).TotalSeconds
+                };
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "VAD分段转录失败，回退到完整音频转录");
+                
+                // 回退到完整音频转录
+                var (srtContent, plainText) = await whisperManager.Transcribe(audioData, (progress) =>
+                {
+                    ProgressChanged?.Invoke(this, progress);
+                }, totalMs);
+
+                return new TranscriptionResult
+                {
+                    Success = true,
+                    Text = plainText,
+                    SrtContent = srtContent,
+                    ProcessingTime = (DateTime.UtcNow - startTime).TotalSeconds
+                };
+            }
+        }
+
+        /// <summary>
+        /// 调整SRT时间戳以反映分段在原始音频中的实际位置
+        /// </summary>
+        private List<string> AdjustSrtTimestamps(string srtContent, TimeSpan segmentStartTime, int startId)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrWhiteSpace(srtContent)) return result;
+            
+            var lines = srtContent.Split(new char[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            var currentId = startId + 1;
+            
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                
+                // 检查是否是序号行
+                if (int.TryParse(line, out _))
+                {
+                    result.Add(currentId.ToString());
+                    currentId++;
+                }
+                // 检查是否是时间戳行
+                else if (line.Contains("-->"))
+                {
+                    var adjustedTimestamp = AdjustTimestamp(line, segmentStartTime);
+                    result.Add(adjustedTimestamp);
+                }
+                // 其他行（文本内容）
+                else
+                {
+                    result.Add(line);
+                }
+                
+                // 在每个SRT条目后添加空行
+                if (i < lines.Length - 1 && !string.IsNullOrWhiteSpace(line) && 
+                    (i + 1 >= lines.Length || int.TryParse(lines[i + 1].Trim(), out _)))
+                {
+                    result.Add("");
+                }
+            }
+            
+            return result;
+        }
+
+        /// <summary>
+        /// 调整单个时间戳行
+        /// </summary>
+        private string AdjustTimestamp(string timestampLine, TimeSpan offset)
+        {
+            try
+            {
+                var parts = timestampLine.Split(new[] { " --> " }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length != 2) return timestampLine;
+                
+                var startTime = ParseSrtTimestamp(parts[0].Trim()) + offset;
+                var endTime = ParseSrtTimestamp(parts[1].Trim()) + offset;
+                
+                return $"{FormatSrtTimestamp(startTime)} --> {FormatSrtTimestamp(endTime)}";
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "调整时间戳失败: {TimestampLine}", timestampLine);
+                return timestampLine;
+            }
+        }
+
+        /// <summary>
+        /// 解析SRT时间戳
+        /// </summary>
+        private TimeSpan ParseSrtTimestamp(string timestamp)
+        {
+            // 格式: hh:mm:ss,fff
+            var parts = timestamp.Split(':');
+            if (parts.Length != 3) throw new FormatException($"无效时间戳格式: {timestamp}");
+            
+            var hours = int.Parse(parts[0]);
+            var minutes = int.Parse(parts[1]);
+            var secondsParts = parts[2].Split(',');
+            var seconds = int.Parse(secondsParts[0]);
+            var milliseconds = secondsParts.Length > 1 ? int.Parse(secondsParts[1]) : 0;
+            
+            return new TimeSpan(0, hours, minutes, seconds, milliseconds);
+        }
+
+        /// <summary>
+        /// 格式化SRT时间戳
+        /// </summary>
+        private string FormatSrtTimestamp(TimeSpan timeSpan)
+        {
+            return $"{(int)timeSpan.TotalHours:D2}:{timeSpan.Minutes:D2}:{timeSpan.Seconds:D2},{timeSpan.Milliseconds:D3}";
         }
 
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();

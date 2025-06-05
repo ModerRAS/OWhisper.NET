@@ -404,6 +404,9 @@ namespace OWhisper.NET
                 }
 
                 form.Add(fileContent, "file", fileName);
+                
+                // 添加VAD参数（默认启用）
+                form.Add(new StringContent("true"), "enable_vad");
 
                 // 发送请求
                 var response = await _httpClient.PostAsync($"{ApiBaseUrl}/api/transcribe", form);
