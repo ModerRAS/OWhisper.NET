@@ -106,7 +106,9 @@ namespace OWhisper.Core.Services
             }
         }
 
-        public async Task DownloadModelAsync(GgmlType modelType, string targetModelsDir)
+        public async Task DownloadModelAsync(GgmlType modelType, string targetModelsDir, 
+            Action<long, long, double, double> progressCallback = null, 
+            CancellationToken cancellationToken = default)
         {
             if (!Directory.Exists(targetModelsDir))
             {
@@ -130,12 +132,12 @@ namespace OWhisper.Core.Services
                 // 对于 large-v3-turbo 模型，使用 R2 直接下载
                 if (modelType == GgmlType.LargeV3Turbo)
                 {
-                    await DownloadFromR2Async(targetModelsDir, downloadStartTime);
+                    await DownloadFromR2Async(targetModelsDir, downloadStartTime, progressCallback, cancellationToken);
                 }
                 else
                 {
                     // 其他模型使用原来的下载方式
-                    await DownloadFromWhisperGgmlAsync(modelType, targetModelsDir, downloadStartTime);
+                    await DownloadFromWhisperGgmlAsync(modelType, targetModelsDir, downloadStartTime, progressCallback, cancellationToken);
                 }
             }
             catch (System.Net.Http.HttpRequestException ex)
@@ -158,7 +160,9 @@ namespace OWhisper.Core.Services
         /// <summary>
         /// 从 R2 存储下载 large-v3-turbo 模型（使用 Downloader 库实现多线程下载和断点续传）
         /// </summary>
-        private async Task DownloadFromR2Async(string targetModelsDir, DateTime downloadStartTime)
+        private async Task DownloadFromR2Async(string targetModelsDir, DateTime downloadStartTime, 
+            Action<long, long, double, double> progressCallback = null, 
+            CancellationToken cancellationToken = default)
         {
             const string R2_BASE_URL = "https://velopack.miaostay.com";
             var modelUrl = $"{R2_BASE_URL}/models/{ModelName}";
@@ -239,9 +243,15 @@ namespace OWhisper.Core.Services
                     // 设置进度事件处理
                     downloader.DownloadProgressChanged += (sender, e) =>
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        
                         var now = DateTime.UtcNow;
                         
-                        // 每2秒报告一次进度
+                        // 调用进度回调（如果提供了）
+                        progressCallback?.Invoke(e.ReceivedBytesSize, e.TotalBytesToReceive, 
+                            e.ProgressPercentage, e.AverageBytesPerSecondSpeed / (1024 * 1024));
+                        
+                        // 每2秒报告一次进度到日志
                         if (now - lastProgressTime > TimeSpan.FromSeconds(2))
                         {
                             var currentSpeed = (e.ReceivedBytesSize - lastDownloadedBytes) / (now - lastProgressTime).TotalSeconds / (1024 * 1024);
@@ -361,21 +371,23 @@ namespace OWhisper.Core.Services
                 Log.Error(ex, "使用 Downloader 库下载失败，尝试单线程下载");
                 
                 // 降级到单线程下载
-                await DownloadSingleThreadedFallbackAsync(modelUrl, tempFilePath, finalPath, downloadStartTime);
+                await DownloadSingleThreadedFallbackAsync(modelUrl, tempFilePath, finalPath, downloadStartTime, progressCallback, cancellationToken);
             }
         }
 
         /// <summary>
         /// 单线程下载（备用方案）
         /// </summary>
-        private async Task DownloadSingleThreadedFallbackAsync(string modelUrl, string tempFilePath, string finalPath, DateTime downloadStartTime)
+        private async Task DownloadSingleThreadedFallbackAsync(string modelUrl, string tempFilePath, string finalPath, DateTime downloadStartTime, 
+            Action<long, long, double, double> progressCallback = null, 
+            CancellationToken cancellationToken = default)
         {
             Log.Information("使用单线程下载作为备用方案");
             
             using var httpClient = HttpClientHelper.CreateProxyHttpClient();
             httpClient.Timeout = TimeSpan.FromMinutes(10);
 
-            using var response = await httpClient.GetAsync(modelUrl, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await httpClient.GetAsync(modelUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var totalBytes = response.Content.Headers.ContentLength ?? 0;
@@ -389,22 +401,27 @@ namespace OWhisper.Core.Services
             int bytesRead;
             var lastProgressTime = downloadStartTime;
 
-            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
             {
-                await fileWriter.WriteAsync(buffer, 0, bytesRead);
+                await fileWriter.WriteAsync(buffer, 0, bytesRead, cancellationToken);
                 downloadedBytes += bytesRead;
 
-                // 每3秒报告一次进度
-                if (DateTime.UtcNow - lastProgressTime > TimeSpan.FromSeconds(3))
+                var now = DateTime.UtcNow;
+                // 每1秒更新一次进度
+                if (now - lastProgressTime > TimeSpan.FromSeconds(1))
                 {
                     var progressPercent = totalBytes > 0 ? (downloadedBytes * 100.0 / totalBytes) : 0;
-                    var speed = downloadedBytes / (DateTime.UtcNow - downloadStartTime).TotalSeconds / (1024 * 1024);
+                    var speed = downloadedBytes / (now - downloadStartTime).TotalSeconds / (1024 * 1024);
+                    
+                    // 调用进度回调
+                    progressCallback?.Invoke(downloadedBytes, totalBytes, progressPercent, speed);
+                    
                     Log.Information("单线程下载进度: {DownloadedMB}MB / {TotalMB}MB ({Progress:F1}%) - 速度: {Speed:F1}MB/s", 
                         downloadedBytes / (1024 * 1024), 
                         totalBytes / (1024 * 1024), 
                         progressPercent,
                         speed);
-                    lastProgressTime = DateTime.UtcNow;
+                    lastProgressTime = now;
                 }
             }
 
@@ -447,7 +464,9 @@ namespace OWhisper.Core.Services
         /// <summary>
         /// 使用原来的 WhisperGgmlDownloader 下载其他模型
         /// </summary>
-        private async Task DownloadFromWhisperGgmlAsync(GgmlType modelType, string targetModelsDir, DateTime downloadStartTime)
+        private async Task DownloadFromWhisperGgmlAsync(GgmlType modelType, string targetModelsDir, DateTime downloadStartTime, 
+            Action<long, long, double, double> progressCallback = null, 
+            CancellationToken cancellationToken = default)
         {
             // 创建下载器实例并下载模型
             using var httpClient = HttpClientHelper.CreateProxyHttpClient();
@@ -464,16 +483,25 @@ namespace OWhisper.Core.Services
                     var buffer = new byte[8192];
                     long totalBytes = 0;
                     int bytesRead;
+                    var lastProgressTime = downloadStartTime;
 
-                    while ((bytesRead = await modelStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                    while ((bytesRead = await modelStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
                     {
-                        await fileWriter.WriteAsync(buffer, 0, bytesRead);
+                        await fileWriter.WriteAsync(buffer, 0, bytesRead, cancellationToken);
                         totalBytes += bytesRead;
 
-                        if (DateTime.UtcNow - downloadStartTime > TimeSpan.FromSeconds(5))
+                        var now = DateTime.UtcNow;
+                        // 每2秒更新一次进度
+                        if (now - lastProgressTime > TimeSpan.FromSeconds(2))
                         {
-                            Log.Information("已下载: {DownloadedMB}MB", totalBytes / (1024 * 1024));
-                            downloadStartTime = DateTime.UtcNow;
+                            var avgSpeed = totalBytes / (now - downloadStartTime).TotalSeconds / (1024 * 1024);
+                            
+                            // 调用进度回调（无法获取总大小，传递0）
+                            progressCallback?.Invoke(totalBytes, 0, 0, avgSpeed);
+                            
+                            Log.Information("已下载: {DownloadedMB}MB, 平均速度: {Speed:F1}MB/s", 
+                                totalBytes / (1024 * 1024), avgSpeed);
+                            lastProgressTime = now;
                         }
                     }
                 }

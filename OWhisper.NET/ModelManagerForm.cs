@@ -687,8 +687,22 @@ namespace OWhisper.NET
                     Directory.CreateDirectory(modelsPath);
                 }
                 
-                // 使用 WhisperManager 的下载功能
-                await _whisperManager.DownloadModelAsync(config.GgmlType, modelsPath);
+                // 定义进度回调函数
+                Action<long, long, double, double> progressCallback = (downloadedBytes, totalBytes, progressPercent, speedMBs) =>
+                {
+                    // 在UI线程中更新界面
+                    if (InvokeRequired)
+                    {
+                        Invoke(new Action(() => UpdateDownloadProgress(downloadedBytes, totalBytes, progressPercent, speedMBs)));
+                    }
+                    else
+                    {
+                        UpdateDownloadProgress(downloadedBytes, totalBytes, progressPercent, speedMBs);
+                    }
+                };
+                
+                // 使用 WhisperManager 的下载功能，传入进度回调
+                await _whisperManager.DownloadModelAsync(config.GgmlType, modelsPath, progressCallback, _cancellationTokenSource.Token);
                 
                 progressBar.Value = 100;
                 lblProgress.Text = "下载完成";
@@ -724,13 +738,45 @@ namespace OWhisper.NET
             }
         }
 
+        private void UpdateDownloadProgress(long downloadedBytes, long totalBytes, double progressPercent, double speedMBs)
+        {
+            var downloadedMB = downloadedBytes / (1024.0 * 1024.0);
+            
+            if (totalBytes > 0)
+            {
+                var totalMB = totalBytes / (1024.0 * 1024.0);
+                var remainingBytes = totalBytes - downloadedBytes;
+                var remainingSeconds = speedMBs > 0 ? (remainingBytes / (1024.0 * 1024.0)) / speedMBs : 0;
+                var remainingTime = TimeSpan.FromSeconds(remainingSeconds);
+                
+                progressBar.Value = Math.Min(100, (int)progressPercent);
+                lblProgress.Text = $"下载中: {downloadedMB:F1}MB / {totalMB:F1}MB ({progressPercent:F1}%)";
+                lblDownloadSpeed.Text = $"速度: {speedMBs:F2}MB/s | 剩余时间: {remainingTime:mm\\:ss}";
+            }
+            else
+            {
+                // 无法获取总大小的情况（如HuggingFace下载）
+                lblProgress.Text = $"下载中: {downloadedMB:F1}MB";
+                lblDownloadSpeed.Text = $"速度: {speedMBs:F2}MB/s";
+            }
+        }
+
         private void BtnCancelDownload_Click(object sender, EventArgs e)
         {
             if (_isDownloading && _cancellationTokenSource != null)
             {
-                _cancellationTokenSource.Cancel();
-                lblProgress.Text = "正在取消下载...";
-                btnCancelDownload.Enabled = false;
+                try
+                {
+                    _cancellationTokenSource.Cancel();
+                    lblProgress.Text = "正在取消下载...";
+                    lblDownloadSpeed.Text = "";
+                    btnCancelDownload.Enabled = false;
+                    Log.Information("用户请求取消下载");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "取消下载时发生错误");
+                }
             }
         }
 
