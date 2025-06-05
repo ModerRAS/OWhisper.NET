@@ -21,6 +21,7 @@ namespace OWhisper.Core.Services
         public static WhisperService Instance => _instance.Value;
 
         private readonly IPlatformPathService _platformPathService;
+        private readonly WhisperManager _whisperManager;
 
         public enum ServiceStatus
         {
@@ -39,6 +40,7 @@ namespace OWhisper.Core.Services
         private WhisperService()
         {
             _platformPathService = new PlatformPathService();
+            _whisperManager = new WhisperManager(_platformPathService);
         }
 
         public ServiceStatus GetStatus() => _status;
@@ -152,18 +154,17 @@ namespace OWhisper.Core.Services
                 Log.Information("音频总时长: {TotalMs}ms, VAD启用: {VadEnabled}", totalMs, enableVad);
 
                 var startTime = DateTime.UtcNow;
-                using var whisperManager = new WhisperManager(_platformPathService);
 
                 // 使用VAD进行音频分段处理
                 if (enableVad && totalMs > 30000) // 大于30秒的音频才使用VAD
                 {
                     Log.Information("使用VAD进行音频分段处理");
-                    return await TranscribeWithVad(audioData, vadSettings, whisperManager, totalMs, startTime);
+                    return await TranscribeWithVad(audioData, vadSettings, _whisperManager, totalMs, startTime);
                 }
                 else
                 {
                     Log.Information("不使用VAD，直接进行转录");
-                    var (srtContent, plainText) = await whisperManager.Transcribe(audioData, (progress) =>
+                    var (srtContent, plainText) = await _whisperManager.Transcribe(audioData, (progress) =>
                     {
                         // 触发进度事件
                         ProgressChanged?.Invoke(this, progress);
@@ -432,6 +433,7 @@ namespace OWhisper.Core.Services
             {
                 Stop();
                 _cts?.Dispose();
+                _whisperManager?.Dispose();
             }
             catch
             {

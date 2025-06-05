@@ -18,6 +18,11 @@ namespace OWhisper.Core.Services
     public class WhisperManager : IDisposable
     {
         private WhisperProcessor _processor;
+        private WhisperFactory _whisperFactory;
+        private bool _isInitialized = false;
+        private string _currentModelPath = string.Empty;
+        private readonly object _initLock = new object();
+        
         private const string ModelName = "ggml-large-v3-turbo.bin";
         private const string ModelSha256 = "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69";
         const GgmlType ggmlType = GgmlType.LargeV3Turbo;
@@ -31,6 +36,91 @@ namespace OWhisper.Core.Services
             _pathService = pathService ?? new PlatformPathService();
             _modelDir = _pathService.GetModelsPath();
             _modelPath = Path.Combine(_modelDir, ModelName);
+        }
+
+        /// <summary>
+        /// 初始化Whisper实例（只在首次调用或模型变更时执行）
+        /// </summary>
+        private async Task EnsureInitializedAsync()
+        {
+            // 快速检查：如果已经初始化且模型路径没有变化，直接返回
+            if (_isInitialized && _currentModelPath == _modelPath && _whisperFactory != null && _processor != null)
+            {
+                return;
+            }
+
+            lock (_initLock)
+            {
+                // 双重检查锁定模式
+                if (_isInitialized && _currentModelPath == _modelPath && _whisperFactory != null && _processor != null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    var startTime = DateTime.UtcNow;
+                    
+                    // 清理旧实例
+                    CleanupInstances();
+
+                    // 确保目录存在
+                    _pathService.EnsureDirectoriesExist();
+
+                    Log.Information("检查模型文件: {ModelPath}", _modelPath);
+                    var modelStatus = CheckModelStatus();
+                    Log.Information("模型文件校验 - 大小: {Size}字节, 大小有效: {SizeValid}, SHA256有效: {Sha256Valid}",
+                        modelStatus.size, modelStatus.size > 100 * 1024 * 1024, VerifyModelSha256(_modelPath));
+
+                    if (!modelStatus.exists || !modelStatus.valid)
+                    {
+                        Log.Warning("模型文件不存在或无效，需要下载");
+                        throw new InvalidOperationException("模型文件不存在或无效，请先下载模型");
+                    }
+
+                    // 创建Whisper实例
+                    Log.Information("正在初始化Whisper实例...");
+                    _whisperFactory = WhisperFactory.FromPath(_modelPath);
+                    _processor = _whisperFactory.CreateBuilder()
+                                               .WithThreads(16)
+                                               .WithLanguageDetection()
+                                               .Build();
+
+                    _currentModelPath = _modelPath;
+                    _isInitialized = true;
+
+                    var timeTaken = DateTime.UtcNow - startTime;
+                    Log.Information("Whisper实例初始化完成，耗时: {TimeTaken}", timeTaken);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "初始化Whisper实例失败");
+                    CleanupInstances();
+                    throw;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 清理Whisper实例
+        /// </summary>
+        private void CleanupInstances()
+        {
+            try
+            {
+                _processor?.Dispose();
+                _processor = null;
+                
+                _whisperFactory?.Dispose();
+                _whisperFactory = null;
+                
+                _isInitialized = false;
+                _currentModelPath = string.Empty;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "清理Whisper实例时出错");
+            }
         }
 
         /// <summary>
@@ -58,22 +148,19 @@ namespace OWhisper.Core.Services
         /// </summary>
         private bool VerifyModelSha256(string filePath)
         {
-            if (!File.Exists(filePath))
+            if (string.IsNullOrEmpty(ModelSha256))
             {
-                return false;
+                // 如果没有设置预期的SHA256，跳过验证
+                return true;
             }
 
             var actualSha256 = CalculateFileSha256(filePath);
-            var isValid = string.Equals(actualSha256, ModelSha256, StringComparison.OrdinalIgnoreCase);
-            
-            if (!isValid)
-            {
-                Log.Warning("模型文件SHA256校验失败. 预期: {Expected}, 实际: {Actual}", ModelSha256, actualSha256);
-            }
-            
-            return isValid;
+            return !string.IsNullOrEmpty(actualSha256) && actualSha256.Equals(ModelSha256, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// 检查模型文件状态
+        /// </summary>
         public (bool exists, bool valid, long size, string path) CheckModelStatus()
         {
             try
@@ -545,53 +632,15 @@ namespace OWhisper.Core.Services
 
         public async Task<(string srtContent, string plainText)> Transcribe(byte[] audioData, Action<float> progressCallback, double totalMs)
         {
-            TimeSpan timeTaken;
-            var startTime = DateTime.UtcNow;
-
-            // 确保目录存在
-            _pathService.EnsureDirectoriesExist();
-
-            Log.Information("检查模型文件: {ModelPath}", _modelPath);
-            var modelStatus = CheckModelStatus();
-            Log.Information("模型状态 - 存在: {Exists}, 有效: {Valid}, 大小: {Size}字节",
-                modelStatus.exists, modelStatus.valid, modelStatus.size);
-
-            if (!modelStatus.exists || !modelStatus.valid)
-            {
-                try
-                {
-                    Log.Information("开始下载模型文件...");
-                    await DownloadModelAsync(ggmlType, _modelDir);
-                    timeTaken = DateTime.UtcNow - startTime;
-                    Log.Information("下载耗时: {Seconds}秒", timeTaken.TotalSeconds);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error(ex, "模型下载失败");
-                    throw new Exception("模型下载失败", ex);
-                }
-            }
-
-            using var whisperFactory = WhisperFactory.FromPath(_modelPath);
-
-            // This section creates the processor object which is used to process the audio file, it uses language `auto` to detect the language of the audio file.
-            await using var processor = whisperFactory.CreateBuilder()
-                                                      .WithThreads(16)
-                                                      //.WithLanguage("zh")
-                                                      .WithLanguageDetection()
-                                                      //.WithPrompt(prompt)
-                                                      .Build();
-
-            timeTaken = DateTime.UtcNow - startTime;
-            Log.Information("Whisper初始化耗时: {TimeTaken}", timeTaken);
+            // 确保Whisper实例已初始化（只在首次调用或模型变更时初始化）
+            await EnsureInitializedAsync();
 
             using var wavStream = new MemoryStream(audioData);
             wavStream.Seek(0, SeekOrigin.Begin);
 
             Log.Information("⟫ Starting Whisper processing...");
 
-            startTime = DateTime.UtcNow;
-
+            var startTime = DateTime.UtcNow;
             var srtSegments = new List<string>();
             var plainTextSegments = new List<string>();
 
@@ -601,11 +650,12 @@ namespace OWhisper.Core.Services
             var repeatCount = 0;
             var cts = new CancellationTokenSource();
             var token = cts.Token;
+            
             try
             {
-                await foreach (var result in processor.ProcessAsync(wavStream, token))
+                await foreach (var result in _processor.ProcessAsync(wavStream, token))
                 {
-                    timeTaken = DateTime.UtcNow - startTime;
+                    var timeTaken = DateTime.UtcNow - startTime;
                     Log.Information("{Start}-->{End}: {Text} [{TimeTaken}]",
                         result.Start, result.End, result.Text, timeTaken);
 
@@ -732,8 +782,7 @@ namespace OWhisper.Core.Services
 
         public void Dispose()
         {
-            _processor?.Dispose();
-            _processor = null;
+            CleanupInstances();
         }
     }
 } 
