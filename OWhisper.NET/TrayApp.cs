@@ -49,6 +49,10 @@ namespace OWhisper.NET {
             trayMenu.Items.Add("模型管理", null, OnShowModelManager);
             trayMenu.Items.Add("-"); // 分隔线
             
+            // 添加API配置功能
+            trayMenu.Items.Add("AI配置", null, OnShowApiConfig);
+            trayMenu.Items.Add("-"); // 分隔线
+            
             // 修改更新管理菜单项 - 只保留检查更新
             trayMenu.Items.Add("检查更新", null, OnCheckUpdates);
             trayMenu.Items.Add("重启应用", null, OnRestartApply);
@@ -59,7 +63,16 @@ namespace OWhisper.NET {
             trayMenu.Items.Add("退出", null, OnExit);
 
             trayIcon.ContextMenuStrip = trayMenu;
+
+            // 双击打开调试窗口，单击打开菜单
             trayIcon.DoubleClick += (s, e) => OnShowDebug(s, e);
+            trayIcon.MouseClick += (s, e) => {
+                if (e.Button == MouseButtons.Left)
+                {
+                    // 显示右键菜单
+                    trayMenu.Show(Control.MousePosition);
+                }
+            };
         }
 
         // 添加加载应用图标的方法
@@ -151,6 +164,9 @@ namespace OWhisper.NET {
         }
 
         private void OnShowDebug(object sender, EventArgs e) {
+            if (debugForm == null || debugForm.IsDisposed) {
+                debugForm = new MainForm();
+            }
             debugForm.ShowForDebug();
         }
 
@@ -170,6 +186,22 @@ namespace OWhisper.NET {
             }
             modelManagerForm.Show();
             modelManagerForm.Activate();
+        }
+
+        // 添加显示API配置窗口的方法
+        private void OnShowApiConfig(object sender, EventArgs e) {
+            try
+            {
+                using (var configForm = new ApiConfigForm())
+                {
+                    configForm.ShowDialog();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"打开API配置失败: {ex.Message}", "错误", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void OnExit(object sender, EventArgs e) {

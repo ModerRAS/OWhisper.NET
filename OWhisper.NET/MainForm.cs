@@ -13,7 +13,7 @@ using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using TaskStatus = OWhisper.Core.Models.TaskStatus;
-using OWhisper.NET.Services; // 添加UrlAclHelper的命名空间
+using OWhisper.NET.Services; // 添加UrlAclHelper和CredentialService的命名空间
 
 namespace OWhisper.NET
 {
@@ -945,7 +945,19 @@ namespace OWhisper.NET
             {
                 // 使用简单的内存配置
                 chkEnablePolishing.Checked = _polishingConfig.EnablePolishing;
-                txtApiKey.Text = _polishingConfig.ApiKey;
+                
+                // 从凭据管理器加载API Key（默认为DeepSeek）
+                string apiKey = CredentialService.GetApiKey("DeepSeek");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    txtApiKey.Text = apiKey;
+                    _polishingConfig.ApiKey = apiKey;
+                }
+                else
+                {
+                    txtApiKey.Text = "";
+                    _polishingConfig.ApiKey = "";
+                }
                 
                 // 设置选中的模型
                 if (cmbPolishingModel.Items.Contains(_polishingConfig.SelectedModel))
@@ -1016,9 +1028,11 @@ namespace OWhisper.NET
         /// </summary>
         private async void BtnTestConnection_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(txtApiKey.Text))
+            // 从凭据管理器获取API Key
+            string apiKey = CredentialService.GetApiKey("DeepSeek");
+            if (string.IsNullOrWhiteSpace(apiKey))
             {
-                MessageBox.Show("请先输入API Key", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("请先配置API Key。\n点击\"高级设置\"按钮进行配置。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -1029,7 +1043,7 @@ namespace OWhisper.NET
             {
                 var testRequest = new ApiConnectionTestRequest
                 {
-                    ApiKey = txtApiKey.Text,
+                    ApiKey = apiKey,
                     ApiProvider = "deepseek",
                     ApiBaseUrl = "https://api.deepseek.com/v1",
                     Model = cmbPolishingModel.SelectedItem?.ToString() ?? "deepseek-chat"
@@ -1058,27 +1072,27 @@ namespace OWhisper.NET
         }
 
         /// <summary>
-        /// 高级设置按钮点击事件
+        /// 高级设置按钮点击事件 - 打开API配置窗体
         /// </summary>
         private void BtnConfigurePolishing_Click(object sender, EventArgs e)
         {
             try
             {
-                // 打开模板目录
-                var templatesDir = _templateManager.GetTemplatesDirectory();
-                
-                if (Directory.Exists(templatesDir))
+                using (var configForm = new ApiConfigForm())
                 {
-                    System.Diagnostics.Process.Start("explorer.exe", templatesDir);
-                }
-                else
-                {
-                    MessageBox.Show($"模板目录不存在: {templatesDir}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    if (configForm.ShowDialog(this) == DialogResult.OK)
+                    {
+                        // 重新加载API Key配置
+                        LoadPolishingSettings();
+                        
+                        // 刷新UI显示
+                        UpdatePolishingControlsState();
+                    }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"打开模板目录失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"打开API配置失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1095,7 +1109,14 @@ namespace OWhisper.NET
         /// </summary>
         private TextPolishingRequest CreatePolishingRequest(string originalText)
         {
-            if (!chkEnablePolishing.Checked || string.IsNullOrWhiteSpace(txtApiKey.Text))
+            if (!chkEnablePolishing.Checked)
+            {
+                return null;
+            }
+
+            // 从凭据管理器获取API Key
+            string apiKey = CredentialService.GetApiKey("DeepSeek");
+            if (string.IsNullOrWhiteSpace(apiKey))
             {
                 return null;
             }
@@ -1115,7 +1136,7 @@ namespace OWhisper.NET
                 EnablePolishing = true,
                 Model = selectedModel,
                 TemplateName = selectedTemplate.Name,
-                ApiKey = txtApiKey.Text,
+                ApiKey = apiKey,
                 ApiBaseUrl = "https://api.deepseek.com/v1",
                 MaxTokens = 4000,
                 Temperature = 0.7

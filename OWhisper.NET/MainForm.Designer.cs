@@ -94,9 +94,9 @@
             // tableLayoutPanel1
             //
             this.tableLayoutPanel1.ColumnCount = 3;
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 120F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 160F));
             this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 120F));
+            this.tableLayoutPanel1.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 160F));
             this.tableLayoutPanel1.Controls.Add(this.lblFile, 0, 0);
             this.tableLayoutPanel1.Controls.Add(this.txtSelectedFile, 1, 0);
             this.tableLayoutPanel1.Controls.Add(this.btnSelectFile, 2, 0);
@@ -109,23 +109,24 @@
             this.tableLayoutPanel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 28);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
-            this.tableLayoutPanel1.Padding = new System.Windows.Forms.Padding(10);
+            this.tableLayoutPanel1.Padding = new System.Windows.Forms.Padding(15);
             this.tableLayoutPanel1.RowCount = 5;
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 120F));
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 60F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 60F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 180F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 50F));
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.tableLayoutPanel1.Size = new System.Drawing.Size(800, 422);
+            this.tableLayoutPanel1.Size = new System.Drawing.Size(1000, 622);
             this.tableLayoutPanel1.TabIndex = 0;
             //
             // lblFile
             //
             this.lblFile.AutoSize = true;
             this.lblFile.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblFile.Location = new System.Drawing.Point(13, 10);
+            this.lblFile.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblFile.Location = new System.Drawing.Point(18, 15);
             this.lblFile.Name = "lblFile";
-            this.lblFile.Size = new System.Drawing.Size(114, 40);
+            this.lblFile.Size = new System.Drawing.Size(154, 60);
             this.lblFile.TabIndex = 0;
             this.lblFile.Text = "音频文件:";
             this.lblFile.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
@@ -133,18 +134,20 @@
             // txtSelectedFile
             //
             this.txtSelectedFile.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-            this.txtSelectedFile.Location = new System.Drawing.Point(133, 16);
+            this.txtSelectedFile.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.txtSelectedFile.Location = new System.Drawing.Point(178, 28);
             this.txtSelectedFile.Name = "txtSelectedFile";
             this.txtSelectedFile.ReadOnly = true;
-            this.txtSelectedFile.Size = new System.Drawing.Size(544, 27);
+            this.txtSelectedFile.Size = new System.Drawing.Size(644, 34);
             this.txtSelectedFile.TabIndex = 1;
             //
             // btnSelectFile
             //
             this.btnSelectFile.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.btnSelectFile.Location = new System.Drawing.Point(683, 13);
+            this.btnSelectFile.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.btnSelectFile.Location = new System.Drawing.Point(828, 18);
             this.btnSelectFile.Name = "btnSelectFile";
-            this.btnSelectFile.Size = new System.Drawing.Size(114, 34);
+            this.btnSelectFile.Size = new System.Drawing.Size(154, 54);
             this.btnSelectFile.TabIndex = 2;
             this.btnSelectFile.Text = "选择文件";
             this.btnSelectFile.UseVisualStyleBackColor = true;
@@ -153,9 +156,10 @@
             //
             this.lblOutput.AutoSize = true;
             this.lblOutput.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.lblOutput.Location = new System.Drawing.Point(13, 50);
+            this.lblOutput.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblOutput.Location = new System.Drawing.Point(18, 75);
             this.lblOutput.Name = "lblOutput";
-            this.lblOutput.Size = new System.Drawing.Size(114, 40);
+            this.lblOutput.Size = new System.Drawing.Size(154, 60);
             this.lblOutput.TabIndex = 3;
             this.lblOutput.Text = "保存为:";
             this.lblOutput.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
@@ -163,18 +167,20 @@
             // txtOutputPath
             //
             this.txtOutputPath.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-            this.txtOutputPath.Location = new System.Drawing.Point(133, 56);
+            this.txtOutputPath.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.txtOutputPath.Location = new System.Drawing.Point(178, 88);
             this.txtOutputPath.Name = "txtOutputPath";
             this.txtOutputPath.ReadOnly = true;
-            this.txtOutputPath.Size = new System.Drawing.Size(544, 27);
+            this.txtOutputPath.Size = new System.Drawing.Size(644, 34);
             this.txtOutputPath.TabIndex = 4;
             //
             // btnSelectFolder
             //
             this.btnSelectFolder.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.btnSelectFolder.Location = new System.Drawing.Point(683, 53);
+            this.btnSelectFolder.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.btnSelectFolder.Location = new System.Drawing.Point(828, 78);
             this.btnSelectFolder.Name = "btnSelectFolder";
-            this.btnSelectFolder.Size = new System.Drawing.Size(114, 34);
+            this.btnSelectFolder.Size = new System.Drawing.Size(154, 54);
             this.btnSelectFolder.TabIndex = 5;
             this.btnSelectFolder.Text = "另存为";
             this.btnSelectFolder.UseVisualStyleBackColor = true;
@@ -192,9 +198,10 @@
             this.grpPolishing.Controls.Add(this.btnTestConnection);
             this.grpPolishing.Controls.Add(this.btnConfigurePolishing);
             this.grpPolishing.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.grpPolishing.Location = new System.Drawing.Point(13, 93);
+            this.grpPolishing.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.grpPolishing.Location = new System.Drawing.Point(18, 138);
             this.grpPolishing.Name = "grpPolishing";
-            this.grpPolishing.Size = new System.Drawing.Size(774, 114);
+            this.grpPolishing.Size = new System.Drawing.Size(964, 174);
             this.grpPolishing.TabIndex = 6;
             this.grpPolishing.TabStop = false;
             this.grpPolishing.Text = "文本润色设置";
@@ -202,9 +209,10 @@
             // chkEnablePolishing
             //
             this.chkEnablePolishing.AutoSize = true;
-            this.chkEnablePolishing.Location = new System.Drawing.Point(15, 25);
+            this.chkEnablePolishing.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.chkEnablePolishing.Location = new System.Drawing.Point(20, 35);
             this.chkEnablePolishing.Name = "chkEnablePolishing";
-            this.chkEnablePolishing.Size = new System.Drawing.Size(91, 21);
+            this.chkEnablePolishing.Size = new System.Drawing.Size(141, 28);
             this.chkEnablePolishing.TabIndex = 0;
             this.chkEnablePolishing.Text = "启用文本润色";
             this.chkEnablePolishing.UseVisualStyleBackColor = true;
@@ -212,70 +220,78 @@
             // lblPolishingModel
             //
             this.lblPolishingModel.AutoSize = true;
-            this.lblPolishingModel.Location = new System.Drawing.Point(15, 55);
+            this.lblPolishingModel.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblPolishingModel.Location = new System.Drawing.Point(20, 80);
             this.lblPolishingModel.Name = "lblPolishingModel";
-            this.lblPolishingModel.Size = new System.Drawing.Size(39, 17);
+            this.lblPolishingModel.Size = new System.Drawing.Size(54, 24);
             this.lblPolishingModel.TabIndex = 1;
             this.lblPolishingModel.Text = "模型:";
             //
             // cmbPolishingModel
             //
             this.cmbPolishingModel.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbPolishingModel.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.cmbPolishingModel.FormattingEnabled = true;
-            this.cmbPolishingModel.Location = new System.Drawing.Point(60, 52);
+            this.cmbPolishingModel.Location = new System.Drawing.Point(80, 77);
             this.cmbPolishingModel.Name = "cmbPolishingModel";
-            this.cmbPolishingModel.Size = new System.Drawing.Size(140, 25);
+            this.cmbPolishingModel.Size = new System.Drawing.Size(220, 32);
             this.cmbPolishingModel.TabIndex = 2;
             //
             // lblPolishingTemplate
             //
             this.lblPolishingTemplate.AutoSize = true;
-            this.lblPolishingTemplate.Location = new System.Drawing.Point(220, 55);
+            this.lblPolishingTemplate.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblPolishingTemplate.Location = new System.Drawing.Point(320, 80);
             this.lblPolishingTemplate.Name = "lblPolishingTemplate";
-            this.lblPolishingTemplate.Size = new System.Drawing.Size(39, 17);
+            this.lblPolishingTemplate.Size = new System.Drawing.Size(54, 24);
             this.lblPolishingTemplate.TabIndex = 3;
             this.lblPolishingTemplate.Text = "模板:";
             //
             // cmbPolishingTemplate
             //
             this.cmbPolishingTemplate.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbPolishingTemplate.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.cmbPolishingTemplate.FormattingEnabled = true;
-            this.cmbPolishingTemplate.Location = new System.Drawing.Point(265, 52);
+            this.cmbPolishingTemplate.Location = new System.Drawing.Point(380, 77);
             this.cmbPolishingTemplate.Name = "cmbPolishingTemplate";
-            this.cmbPolishingTemplate.Size = new System.Drawing.Size(180, 25);
+            this.cmbPolishingTemplate.Size = new System.Drawing.Size(300, 32);
             this.cmbPolishingTemplate.TabIndex = 4;
             //
             // lblApiKey
             //
             this.lblApiKey.AutoSize = true;
-            this.lblApiKey.Location = new System.Drawing.Point(15, 85);
+            this.lblApiKey.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblApiKey.Location = new System.Drawing.Point(20, 125);
             this.lblApiKey.Name = "lblApiKey";
-            this.lblApiKey.Size = new System.Drawing.Size(57, 17);
+            this.lblApiKey.Size = new System.Drawing.Size(83, 24);
             this.lblApiKey.TabIndex = 5;
             this.lblApiKey.Text = "API Key:";
             //
             // txtApiKey
             //
-            this.txtApiKey.Location = new System.Drawing.Point(78, 82);
+            this.txtApiKey.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.txtApiKey.Location = new System.Drawing.Point(110, 122);
             this.txtApiKey.Name = "txtApiKey";
             this.txtApiKey.PasswordChar = '*';
-            this.txtApiKey.Size = new System.Drawing.Size(367, 23);
+            this.txtApiKey.Size = new System.Drawing.Size(420, 31);
             this.txtApiKey.TabIndex = 6;
             //
             // btnTestConnection
             //
-            this.btnTestConnection.Location = new System.Drawing.Point(460, 80);
+            this.btnTestConnection.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.btnTestConnection.Location = new System.Drawing.Point(550, 118);
             this.btnTestConnection.Name = "btnTestConnection";
-            this.btnTestConnection.Size = new System.Drawing.Size(80, 27);
+            this.btnTestConnection.Size = new System.Drawing.Size(110, 45);
             this.btnTestConnection.TabIndex = 7;
             this.btnTestConnection.Text = "测试连接";
             this.btnTestConnection.UseVisualStyleBackColor = true;
             //
             // btnConfigurePolishing
             //
-            this.btnConfigurePolishing.Location = new System.Drawing.Point(560, 50);
+            this.btnConfigurePolishing.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.btnConfigurePolishing.Location = new System.Drawing.Point(680, 118);
             this.btnConfigurePolishing.Name = "btnConfigurePolishing";
-            this.btnConfigurePolishing.Size = new System.Drawing.Size(80, 27);
+            this.btnConfigurePolishing.Size = new System.Drawing.Size(110, 45);
             this.btnConfigurePolishing.TabIndex = 8;
             this.btnConfigurePolishing.Text = "高级设置";
             this.btnConfigurePolishing.UseVisualStyleBackColor = true;
@@ -284,19 +300,19 @@
             //
             this.tableLayoutPanel1.SetColumnSpan(this.progressBar, 3);
             this.progressBar.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.progressBar.Location = new System.Drawing.Point(13, 213);
+            this.progressBar.Location = new System.Drawing.Point(18, 318);
             this.progressBar.Name = "progressBar";
-            this.progressBar.Size = new System.Drawing.Size(774, 34);
+            this.progressBar.Size = new System.Drawing.Size(964, 44);
             this.progressBar.TabIndex = 7;
             //
             // btnProcess
             //
             this.tableLayoutPanel1.SetColumnSpan(this.btnProcess, 3);
             this.btnProcess.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.btnProcess.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.btnProcess.Location = new System.Drawing.Point(13, 253);
+            this.btnProcess.Font = new System.Drawing.Font("Microsoft YaHei UI", 14F, System.Drawing.FontStyle.Bold);
+            this.btnProcess.Location = new System.Drawing.Point(18, 368);
             this.btnProcess.Name = "btnProcess";
-            this.btnProcess.Size = new System.Drawing.Size(774, 156);
+            this.btnProcess.Size = new System.Drawing.Size(964, 234);
             this.btnProcess.TabIndex = 8;
             this.btnProcess.Text = "开始处理";
             this.btnProcess.UseVisualStyleBackColor = true;
@@ -374,11 +390,11 @@
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 20F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(800, 450);
+            this.ClientSize = new System.Drawing.Size(1000, 650);
             this.Controls.Add(this.tableLayoutPanel1);
             this.Controls.Add(this.menuStrip1);
             this.MainMenuStrip = this.menuStrip1;
-            this.MinimumSize = new System.Drawing.Size(600, 300);
+            this.MinimumSize = new System.Drawing.Size(900, 500);
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "OWhisper.NET - 音频转写工具";
