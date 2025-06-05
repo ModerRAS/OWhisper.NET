@@ -25,6 +25,18 @@
         private System.Windows.Forms.ToolStripSeparator toolStripSeparator1;
         private System.Windows.Forms.ToolStripMenuItem exitMenuItem;
 
+        // 文本润色相关控件
+        private System.Windows.Forms.GroupBox grpPolishing = null!;
+        private System.Windows.Forms.CheckBox chkEnablePolishing = null!;
+        private System.Windows.Forms.Label lblPolishingModel = null!;
+        private System.Windows.Forms.ComboBox cmbPolishingModel = null!;
+        private System.Windows.Forms.Label lblPolishingTemplate = null!;
+        private System.Windows.Forms.ComboBox cmbPolishingTemplate = null!;
+        private System.Windows.Forms.Label lblApiKey = null!;
+        private System.Windows.Forms.TextBox txtApiKey = null!;
+        private System.Windows.Forms.Button btnTestConnection = null!;
+        private System.Windows.Forms.Button btnConfigurePolishing = null!;
+
         /// <summary>
         ///  Clean up any resources being used.
         /// </summary>
@@ -54,6 +66,16 @@
             this.lblOutput = new System.Windows.Forms.Label();
             this.txtOutputPath = new System.Windows.Forms.TextBox();
             this.btnSelectFolder = new System.Windows.Forms.Button();
+            this.grpPolishing = new System.Windows.Forms.GroupBox();
+            this.chkEnablePolishing = new System.Windows.Forms.CheckBox();
+            this.lblPolishingModel = new System.Windows.Forms.Label();
+            this.cmbPolishingModel = new System.Windows.Forms.ComboBox();
+            this.lblPolishingTemplate = new System.Windows.Forms.Label();
+            this.cmbPolishingTemplate = new System.Windows.Forms.ComboBox();
+            this.lblApiKey = new System.Windows.Forms.Label();
+            this.txtApiKey = new System.Windows.Forms.TextBox();
+            this.btnTestConnection = new System.Windows.Forms.Button();
+            this.btnConfigurePolishing = new System.Windows.Forms.Button();
             this.progressBar = new System.Windows.Forms.ProgressBar();
             this.btnProcess = new System.Windows.Forms.Button();
             this.openFileDialog = new System.Windows.Forms.OpenFileDialog();
@@ -81,15 +103,17 @@
             this.tableLayoutPanel1.Controls.Add(this.lblOutput, 0, 1);
             this.tableLayoutPanel1.Controls.Add(this.txtOutputPath, 1, 1);
             this.tableLayoutPanel1.Controls.Add(this.btnSelectFolder, 2, 1);
-            this.tableLayoutPanel1.Controls.Add(this.progressBar, 0, 2);
-            this.tableLayoutPanel1.Controls.Add(this.btnProcess, 0, 3);
+            this.tableLayoutPanel1.Controls.Add(this.grpPolishing, 0, 2);
+            this.tableLayoutPanel1.Controls.Add(this.progressBar, 0, 3);
+            this.tableLayoutPanel1.Controls.Add(this.btnProcess, 0, 4);
             this.tableLayoutPanel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 28);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
             this.tableLayoutPanel1.Padding = new System.Windows.Forms.Padding(10);
-            this.tableLayoutPanel1.RowCount = 4;
+            this.tableLayoutPanel1.RowCount = 5;
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 120F));
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
             this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
             this.tableLayoutPanel1.Size = new System.Drawing.Size(800, 422);
@@ -155,24 +179,125 @@
             this.btnSelectFolder.Text = "另存为";
             this.btnSelectFolder.UseVisualStyleBackColor = true;
             //
+            // grpPolishing
+            //
+            this.tableLayoutPanel1.SetColumnSpan(this.grpPolishing, 3);
+            this.grpPolishing.Controls.Add(this.chkEnablePolishing);
+            this.grpPolishing.Controls.Add(this.lblPolishingModel);
+            this.grpPolishing.Controls.Add(this.cmbPolishingModel);
+            this.grpPolishing.Controls.Add(this.lblPolishingTemplate);
+            this.grpPolishing.Controls.Add(this.cmbPolishingTemplate);
+            this.grpPolishing.Controls.Add(this.lblApiKey);
+            this.grpPolishing.Controls.Add(this.txtApiKey);
+            this.grpPolishing.Controls.Add(this.btnTestConnection);
+            this.grpPolishing.Controls.Add(this.btnConfigurePolishing);
+            this.grpPolishing.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.grpPolishing.Location = new System.Drawing.Point(13, 93);
+            this.grpPolishing.Name = "grpPolishing";
+            this.grpPolishing.Size = new System.Drawing.Size(774, 114);
+            this.grpPolishing.TabIndex = 6;
+            this.grpPolishing.TabStop = false;
+            this.grpPolishing.Text = "文本润色设置";
+            //
+            // chkEnablePolishing
+            //
+            this.chkEnablePolishing.AutoSize = true;
+            this.chkEnablePolishing.Location = new System.Drawing.Point(15, 25);
+            this.chkEnablePolishing.Name = "chkEnablePolishing";
+            this.chkEnablePolishing.Size = new System.Drawing.Size(91, 21);
+            this.chkEnablePolishing.TabIndex = 0;
+            this.chkEnablePolishing.Text = "启用文本润色";
+            this.chkEnablePolishing.UseVisualStyleBackColor = true;
+            //
+            // lblPolishingModel
+            //
+            this.lblPolishingModel.AutoSize = true;
+            this.lblPolishingModel.Location = new System.Drawing.Point(15, 55);
+            this.lblPolishingModel.Name = "lblPolishingModel";
+            this.lblPolishingModel.Size = new System.Drawing.Size(39, 17);
+            this.lblPolishingModel.TabIndex = 1;
+            this.lblPolishingModel.Text = "模型:";
+            //
+            // cmbPolishingModel
+            //
+            this.cmbPolishingModel.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbPolishingModel.FormattingEnabled = true;
+            this.cmbPolishingModel.Location = new System.Drawing.Point(60, 52);
+            this.cmbPolishingModel.Name = "cmbPolishingModel";
+            this.cmbPolishingModel.Size = new System.Drawing.Size(140, 25);
+            this.cmbPolishingModel.TabIndex = 2;
+            //
+            // lblPolishingTemplate
+            //
+            this.lblPolishingTemplate.AutoSize = true;
+            this.lblPolishingTemplate.Location = new System.Drawing.Point(220, 55);
+            this.lblPolishingTemplate.Name = "lblPolishingTemplate";
+            this.lblPolishingTemplate.Size = new System.Drawing.Size(39, 17);
+            this.lblPolishingTemplate.TabIndex = 3;
+            this.lblPolishingTemplate.Text = "模板:";
+            //
+            // cmbPolishingTemplate
+            //
+            this.cmbPolishingTemplate.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbPolishingTemplate.FormattingEnabled = true;
+            this.cmbPolishingTemplate.Location = new System.Drawing.Point(265, 52);
+            this.cmbPolishingTemplate.Name = "cmbPolishingTemplate";
+            this.cmbPolishingTemplate.Size = new System.Drawing.Size(180, 25);
+            this.cmbPolishingTemplate.TabIndex = 4;
+            //
+            // lblApiKey
+            //
+            this.lblApiKey.AutoSize = true;
+            this.lblApiKey.Location = new System.Drawing.Point(15, 85);
+            this.lblApiKey.Name = "lblApiKey";
+            this.lblApiKey.Size = new System.Drawing.Size(57, 17);
+            this.lblApiKey.TabIndex = 5;
+            this.lblApiKey.Text = "API Key:";
+            //
+            // txtApiKey
+            //
+            this.txtApiKey.Location = new System.Drawing.Point(78, 82);
+            this.txtApiKey.Name = "txtApiKey";
+            this.txtApiKey.PasswordChar = '*';
+            this.txtApiKey.Size = new System.Drawing.Size(367, 23);
+            this.txtApiKey.TabIndex = 6;
+            //
+            // btnTestConnection
+            //
+            this.btnTestConnection.Location = new System.Drawing.Point(460, 80);
+            this.btnTestConnection.Name = "btnTestConnection";
+            this.btnTestConnection.Size = new System.Drawing.Size(80, 27);
+            this.btnTestConnection.TabIndex = 7;
+            this.btnTestConnection.Text = "测试连接";
+            this.btnTestConnection.UseVisualStyleBackColor = true;
+            //
+            // btnConfigurePolishing
+            //
+            this.btnConfigurePolishing.Location = new System.Drawing.Point(560, 50);
+            this.btnConfigurePolishing.Name = "btnConfigurePolishing";
+            this.btnConfigurePolishing.Size = new System.Drawing.Size(80, 27);
+            this.btnConfigurePolishing.TabIndex = 8;
+            this.btnConfigurePolishing.Text = "高级设置";
+            this.btnConfigurePolishing.UseVisualStyleBackColor = true;
+            //
             // progressBar
             //
             this.tableLayoutPanel1.SetColumnSpan(this.progressBar, 3);
             this.progressBar.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.progressBar.Location = new System.Drawing.Point(13, 93);
+            this.progressBar.Location = new System.Drawing.Point(13, 213);
             this.progressBar.Name = "progressBar";
             this.progressBar.Size = new System.Drawing.Size(774, 34);
-            this.progressBar.TabIndex = 6;
+            this.progressBar.TabIndex = 7;
             //
             // btnProcess
             //
             this.tableLayoutPanel1.SetColumnSpan(this.btnProcess, 3);
             this.btnProcess.Dock = System.Windows.Forms.DockStyle.Fill;
             this.btnProcess.Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold);
-            this.btnProcess.Location = new System.Drawing.Point(13, 133);
+            this.btnProcess.Location = new System.Drawing.Point(13, 253);
             this.btnProcess.Name = "btnProcess";
-            this.btnProcess.Size = new System.Drawing.Size(774, 276);
-            this.btnProcess.TabIndex = 7;
+            this.btnProcess.Size = new System.Drawing.Size(774, 156);
+            this.btnProcess.TabIndex = 8;
             this.btnProcess.Text = "开始处理";
             this.btnProcess.UseVisualStyleBackColor = true;
             //

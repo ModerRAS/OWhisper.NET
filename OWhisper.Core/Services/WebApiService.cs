@@ -64,7 +64,8 @@ namespace OWhisper.Core.Services
                     .WithMode(HttpListenerMode.EmbedIO))
                     .WithWebApi("/", m => m
                         .WithController<WhisperController>()
-                        .WithController<SseController>());
+                        .WithController<SseController>()
+                        .WithController<TextPolishingController>());
                 
                 // 启动WebServer
                 _ = _webServer.RunAsync(cancellationToken);

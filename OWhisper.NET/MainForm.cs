@@ -4,11 +4,14 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Net.Http;
 using OWhisper.Core.Models;
+using OWhisper.Core.Services;
 using Newtonsoft.Json;
 using System.Threading;
 using System.Text;
 using System.Drawing;
 using System.Reflection;
+using System.Collections.Generic;
+using System.Linq;
 using TaskStatus = OWhisper.Core.Models.TaskStatus;
 using OWhisper.NET.Services; // 添加UrlAclHelper的命名空间
 
@@ -22,6 +25,12 @@ namespace OWhisper.NET
         private string _currentTaskId;
         private CancellationTokenSource _sseCancellationToken;
         private TaskStatus? _lastStatus = null; // 使用nullable类型来跟踪状态
+        
+        // 文本润色相关字段
+        private TextPolishingHttpClient _polishingHttpClient;
+        private NET.Services.TemplateManagerService _templateManager;
+        private List<PolishingTemplate> _availableTemplates = new List<PolishingTemplate>();
+        private SimplePolishingConfig _polishingConfig = new SimplePolishingConfig();
         
         // 动态获取API基础URL
         private string ApiBaseUrl
@@ -65,6 +74,12 @@ namespace OWhisper.NET
             setupUrlAclMenuItem.Click += SetupUrlAclMenuItem_Click;
             exitMenuItem.Click += ExitMenuItem_Click;
             
+            // 绑定文本润色相关事件
+            chkEnablePolishing.CheckedChanged += ChkEnablePolishing_CheckedChanged;
+            btnTestConnection.Click += BtnTestConnection_Click;
+            btnConfigurePolishing.Click += BtnConfigurePolishing_Click;
+            cmbPolishingTemplate.SelectedIndexChanged += CmbPolishingTemplate_SelectedIndexChanged;
+            
             // 设置初始placeholder文本
             txtSelectedFile.Text = "请选择音频文件...";
             txtSelectedFile.ForeColor = System.Drawing.SystemColors.GrayText;
@@ -74,6 +89,9 @@ namespace OWhisper.NET
             // 默认窗口状态为最小化
             WindowState = FormWindowState.Minimized;
             ShowInTaskbar = false;
+            
+            // 初始化文本润色服务
+            InitializePolishingService();
             
             // 绑定Disposed事件来清理资源
             this.Disposed += (s, e) => {
@@ -585,33 +603,79 @@ namespace OWhisper.NET
         {
             try
             {
+                // 检查是否需要进行文本润色
+                if (chkEnablePolishing.Checked && !string.IsNullOrWhiteSpace(txtApiKey.Text) && !string.IsNullOrWhiteSpace(result.Text))
+                {
+                    await PerformTextPolishingAsync(result);
+                }
+
                 // 根据文件扩展名保存不同格式
                 string content;
+                string polishedContent = null;
                 string extension = Path.GetExtension(_outputFilePath).ToLower();
                 
                 if (extension == ".srt")
                 {
                     content = result.SrtContent;
+                    polishedContent = result.PolishingSrtContent;
                 }
                 else
                 {
                     content = result.Text;
+                    polishedContent = result.PolishedText;
                 }
                 
-                // 保存转写结果
-                File.WriteAllText(_outputFilePath, content, System.Text.Encoding.UTF8);
+                // 如果有润色结果且用户启用了润色，保存润色后的内容
+                var finalContent = (!string.IsNullOrEmpty(polishedContent) && result.PolishingEnabled) ? polishedContent : content;
+                File.WriteAllText(_outputFilePath, finalContent, System.Text.Encoding.UTF8);
+                
+                // 如果有润色结果，同时保存原始文件
+                if (!string.IsNullOrEmpty(polishedContent) && result.PolishingEnabled)
+                {
+                    var originalFilePath = Path.ChangeExtension(_outputFilePath, $".original{Path.GetExtension(_outputFilePath)}");
+                    File.WriteAllText(originalFilePath, content, System.Text.Encoding.UTF8);
+                }
+                
+                // 构建完成消息
+                var message = new StringBuilder();
+                message.AppendLine($"处理完成！");
+                message.AppendLine($"转录耗时: {result.ProcessingTime:F1}秒");
+                
+                if (result.PolishingEnabled && result.PolishingResult != null)
+                {
+                    if (result.PolishingResult.IsSuccess)
+                    {
+                        message.AppendLine($"润色耗时: {result.PolishingProcessingTime:F1}秒");
+                        message.AppendLine($"使用模型: {result.PolishingModel}");
+                        message.AppendLine($"使用模板: {result.PolishingTemplateName}");
+                        message.AppendLine($"Token消耗: {result.PolishingResult.TokensUsed}");
+                        message.AppendLine($"润色文件: {_outputFilePath}");
+                        if (!string.IsNullOrEmpty(polishedContent))
+                        {
+                            var originalFilePath = Path.ChangeExtension(_outputFilePath, $".original{Path.GetExtension(_outputFilePath)}");
+                            message.AppendLine($"原始文件: {originalFilePath}");
+                        }
+                    }
+                    else
+                    {
+                        message.AppendLine($"润色失败: {result.PolishingResult.ErrorMessage}");
+                        message.AppendLine($"已保存原始转录结果");
+                    }
+                }
+                else
+                {
+                    message.AppendLine($"保存到: {_outputFilePath}");
+                }
 
                 if (this.InvokeRequired)
                 {
                     this.Invoke(new Action(() => {
-                        MessageBox.Show($"处理完成！\n耗时: {result.ProcessingTime:F1}秒\n保存到: {_outputFilePath}", 
-                            "处理完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(message.ToString(), "处理完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }));
                 }
                 else
                 {
-                    MessageBox.Show($"处理完成！\n耗时: {result.ProcessingTime:F1}秒\n保存到: {_outputFilePath}", 
-                        "处理完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(message.ToString(), "处理完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 
                 // 取消SSE连接
@@ -789,6 +853,475 @@ namespace OWhisper.NET
         {
             Program.ExitApplication();
         }
+
+        #region 文本润色相关方法
+
+        /// <summary>
+        /// 初始化文本润色服务
+        /// </summary>
+        private async void InitializePolishingService()
+        {
+            try
+            {
+                // 初始化HTTP客户端
+                _polishingHttpClient = new TextPolishingHttpClient(ApiBaseUrl);
+                
+                // 初始化模板管理器
+                _templateManager = new NET.Services.TemplateManagerService();
+
+                // 加载模型列表（使用默认列表）
+                var models = new[] { "deepseek-chat", "deepseek-coder", "gpt-4o", "gpt-4", "gpt-3.5-turbo" };
+                cmbPolishingModel.Items.Clear();
+                cmbPolishingModel.Items.AddRange(models);
+                if (models.Length > 0)
+                {
+                    cmbPolishingModel.SelectedIndex = 0;
+                }
+
+                // 加载模板列表
+                await LoadPolishingTemplatesAsync();
+
+                // 初始化控件状态
+                UpdatePolishingControlsState();
+
+                // 加载保存的设置
+                LoadPolishingSettings();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"初始化文本润色服务失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 加载润色模板
+        /// </summary>
+        private async Task LoadPolishingTemplatesAsync()
+        {
+            try
+            {
+                _availableTemplates = await _templateManager.GetAllTemplatesAsync();
+                
+                cmbPolishingTemplate.Items.Clear();
+                foreach (var template in _availableTemplates)
+                {
+                    cmbPolishingTemplate.Items.Add($"{template.Name} ({template.Category})");
+                }
+
+                if (_availableTemplates.Count > 0)
+                {
+                    cmbPolishingTemplate.SelectedIndex = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"加载润色模板失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 更新润色控件状态
+        /// </summary>
+        private void UpdatePolishingControlsState()
+        {
+            bool enabled = chkEnablePolishing.Checked;
+            
+            lblPolishingModel.Enabled = enabled;
+            cmbPolishingModel.Enabled = enabled;
+            lblPolishingTemplate.Enabled = enabled;
+            cmbPolishingTemplate.Enabled = enabled;
+            lblApiKey.Enabled = enabled;
+            txtApiKey.Enabled = enabled;
+            btnTestConnection.Enabled = enabled && !string.IsNullOrWhiteSpace(txtApiKey.Text);
+            btnConfigurePolishing.Enabled = enabled;
+        }
+
+        /// <summary>
+        /// 加载润色设置
+        /// </summary>
+        private void LoadPolishingSettings()
+        {
+            try
+            {
+                // 使用简单的内存配置
+                chkEnablePolishing.Checked = _polishingConfig.EnablePolishing;
+                txtApiKey.Text = _polishingConfig.ApiKey;
+                
+                // 设置选中的模型
+                if (cmbPolishingModel.Items.Contains(_polishingConfig.SelectedModel))
+                {
+                    cmbPolishingModel.SelectedItem = _polishingConfig.SelectedModel;
+                }
+                
+                // 设置选中的模板
+                var templateIndex = _availableTemplates.FindIndex(t => t.Name == _polishingConfig.SelectedTemplateName);
+                if (templateIndex >= 0 && templateIndex < cmbPolishingTemplate.Items.Count)
+                {
+                    cmbPolishingTemplate.SelectedIndex = templateIndex;
+                }
+            }
+            catch (Exception ex)
+            {
+                // 忽略加载设置的错误
+                Console.WriteLine($"加载润色设置失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 保存润色设置
+        /// </summary>
+        private void SavePolishingSettings()
+        {
+            try
+            {
+                // 更新内存配置
+                _polishingConfig.EnablePolishing = chkEnablePolishing.Checked;
+                _polishingConfig.ApiKey = txtApiKey.Text;
+                _polishingConfig.SelectedModel = cmbPolishingModel.SelectedItem?.ToString() ?? "deepseek-chat";
+                _polishingConfig.SelectedTemplateName = GetSelectedTemplateName();
+                _polishingConfig.ApiBaseUrl = "https://api.deepseek.com/v1";
+                _polishingConfig.MaxTokens = 4000;
+                _polishingConfig.Temperature = 0.7;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"保存润色设置失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 获取当前选中的模板名称
+        /// </summary>
+        private string GetSelectedTemplateName()
+        {
+            var selectedIndex = cmbPolishingTemplate.SelectedIndex;
+            if (selectedIndex >= 0 && selectedIndex < _availableTemplates.Count)
+            {
+                return _availableTemplates[selectedIndex].Name;
+            }
+            return "default";
+        }
+
+        /// <summary>
+        /// 启用润色复选框状态改变事件
+        /// </summary>
+        private void ChkEnablePolishing_CheckedChanged(object sender, EventArgs e)
+        {
+            UpdatePolishingControlsState();
+            SavePolishingSettings();
+        }
+
+        /// <summary>
+        /// 测试连接按钮点击事件
+        /// </summary>
+        private async void BtnTestConnection_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtApiKey.Text))
+            {
+                MessageBox.Show("请先输入API Key", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            btnTestConnection.Enabled = false;
+            btnTestConnection.Text = "测试中...";
+
+            try
+            {
+                var testRequest = new ApiConnectionTestRequest
+                {
+                    ApiKey = txtApiKey.Text,
+                    ApiProvider = "deepseek",
+                    ApiBaseUrl = "https://api.deepseek.com/v1",
+                    Model = cmbPolishingModel.SelectedItem?.ToString() ?? "deepseek-chat"
+                };
+
+                var result = await _polishingHttpClient.TestApiConnectionAsync(testRequest);
+
+                if (result.Success)
+                {
+                    MessageBox.Show("API连接测试成功！", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show($"API连接测试失败: {result.ErrorMessage}", "失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"测试连接时发生错误: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnTestConnection.Text = "测试连接";
+                UpdatePolishingControlsState();
+            }
+        }
+
+        /// <summary>
+        /// 高级设置按钮点击事件
+        /// </summary>
+        private void BtnConfigurePolishing_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // 打开模板目录
+                var templatesDir = _templateManager.GetTemplatesDirectory();
+                
+                if (Directory.Exists(templatesDir))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", templatesDir);
+                }
+                else
+                {
+                    MessageBox.Show($"模板目录不存在: {templatesDir}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"打开模板目录失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// 模板选择改变事件
+        /// </summary>
+        private void CmbPolishingTemplate_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            SavePolishingSettings();
+        }
+
+        /// <summary>
+        /// 创建润色请求
+        /// </summary>
+        private TextPolishingRequest CreatePolishingRequest(string originalText)
+        {
+            if (!chkEnablePolishing.Checked || string.IsNullOrWhiteSpace(txtApiKey.Text))
+            {
+                return null;
+            }
+
+            var selectedTemplateIndex = cmbPolishingTemplate.SelectedIndex;
+            if (selectedTemplateIndex < 0 || selectedTemplateIndex >= _availableTemplates.Count)
+            {
+                return null;
+            }
+
+            var selectedTemplate = _availableTemplates[selectedTemplateIndex];
+            var selectedModel = cmbPolishingModel.SelectedItem?.ToString() ?? "deepseek-chat";
+
+            return new TextPolishingRequest
+            {
+                OriginalText = originalText,
+                EnablePolishing = true,
+                Model = selectedModel,
+                TemplateName = selectedTemplate.Name,
+                ApiKey = txtApiKey.Text,
+                ApiBaseUrl = "https://api.deepseek.com/v1",
+                MaxTokens = 4000,
+                Temperature = 0.7
+            };
+        }
+
+        /// <summary>
+        /// 执行文本润色
+        /// </summary>
+        private async Task PerformTextPolishingAsync(TranscriptionResult result)
+        {
+            try
+            {
+                var polishingRequest = CreatePolishingRequest(result.Text);
+                if (polishingRequest == null)
+                {
+                    return;
+                }
+
+                // 更新UI状态
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() => {
+                        btnProcess.Text = "正在润色文本...";
+                    }));
+                }
+                else
+                {
+                    btnProcess.Text = "正在润色文本...";
+                }
+
+                var polishingStartTime = DateTime.UtcNow;
+
+                // 构建HTTP请求
+                var selectedTemplate = _availableTemplates[cmbPolishingTemplate.SelectedIndex];
+                var httpRequest = new TextPolishingHttpRequest
+                {
+                    SrtContent = result.SrtContent,
+                    TemplateContent = _templateManager.SerializeTemplate(selectedTemplate),
+                    ApiKey = polishingRequest.ApiKey,
+                    ApiProvider = "deepseek",
+                    ApiBaseUrl = polishingRequest.ApiBaseUrl,
+                    Model = polishingRequest.Model,
+                    MaxTokens = polishingRequest.MaxTokens,
+                    Temperature = polishingRequest.Temperature,
+                    WindowSize = 2000,
+                    OverlapSize = 200
+                };
+
+                // 执行文本润色
+                var httpResponse = await _polishingHttpClient.PolishSrtAsync(httpRequest);
+                
+                // 转换为旧的响应格式
+                var polishingResult = httpResponse.Success 
+                    ? TextPolishingResult.Success(
+                        result.Text, 
+                        httpResponse.PolishedSrtContent, 
+                        polishingRequest.Model, 
+                        selectedTemplate.Name, 
+                        httpResponse.Statistics?.TotalTokensUsed ?? 0, 
+                        httpResponse.Statistics?.TotalProcessingTimeMs ?? 0)
+                    : TextPolishingResult.Failure(result.Text, httpResponse.ErrorMessage, polishingRequest.Model, selectedTemplate.Name);
+
+                // 更新转录结果
+                result.PolishingEnabled = true;
+                result.PolishingResult = polishingResult;
+                result.PolishingTemplateName = polishingRequest.TemplateName;
+                result.PolishingModel = polishingRequest.Model;
+                result.PolishingProcessingTime = (DateTime.UtcNow - polishingStartTime).TotalSeconds;
+
+                if (polishingResult.IsSuccess)
+                {
+                    result.PolishedText = polishingResult.PolishedText;
+                    
+                    // 生成润色后的SRT内容
+                    if (!string.IsNullOrEmpty(result.SrtContent))
+                    {
+                        result.PolishingSrtContent = await GeneratePolishedSrtAsync(
+                            result.SrtContent, 
+                            result.Text, 
+                            polishingResult.PolishedText);
+                    }
+                }
+
+                // 恢复UI状态
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() => {
+                        btnProcess.Text = "开始处理";
+                    }));
+                }
+                else
+                {
+                    btnProcess.Text = "开始处理";
+                }
+            }
+            catch (Exception ex)
+            {
+                // 润色失败，记录错误但不影响主流程
+                result.PolishingEnabled = true;
+                result.PolishingResult = TextPolishingResult.Failure(
+                    result.Text, 
+                    ex.Message, 
+                    cmbPolishingModel.SelectedItem?.ToString() ?? "deepseek-chat", 
+                    _availableTemplates.FirstOrDefault()?.Name ?? "default");
+                
+                // 恢复UI状态
+                if (this.InvokeRequired)
+                {
+                    this.Invoke(new Action(() => {
+                        btnProcess.Text = "开始处理";
+                    }));
+                }
+                else
+                {
+                    btnProcess.Text = "开始处理";
+                }
+            }
+        }
+
+        /// <summary>
+        /// 生成润色后的SRT内容（简化版本）
+        /// </summary>
+        private async Task<string> GeneratePolishedSrtAsync(string originalSrt, string originalText, string polishedText)
+        {
+            try
+            {
+                // 这是一个简化的实现，直接替换文本内容
+                // 实际应用中可能需要更复杂的逻辑来处理时间戳对齐
+                
+                var lines = originalSrt.Split('\n');
+                var result = new List<string>();
+                
+                // 分割原始文本和润色文本为句子
+                var originalSentences = SplitIntoSentences(originalText);
+                var polishedSentences = SplitIntoSentences(polishedText);
+                
+                int sentenceIndex = 0;
+                
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    var line = lines[i];
+                    
+                    // 跳过序号行和时间戳行
+                    if (System.Text.RegularExpressions.Regex.IsMatch(line, @"^\d+$") || 
+                        System.Text.RegularExpressions.Regex.IsMatch(line, @"\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}"))
+                    {
+                        result.Add(line);
+                    }
+                    // 空行
+                    else if (string.IsNullOrWhiteSpace(line))
+                    {
+                        result.Add(line);
+                    }
+                    // 文本行
+                    else
+                    {
+                        if (sentenceIndex < polishedSentences.Count)
+                        {
+                            result.Add(polishedSentences[sentenceIndex]);
+                            sentenceIndex++;
+                        }
+                        else
+                        {
+                            result.Add(line); // 保持原文本
+                        }
+                    }
+                }
+                
+                return string.Join("\n", result);
+            }
+            catch (Exception)
+            {
+                // 如果生成失败，返回原始SRT
+                return originalSrt;
+            }
+        }
+
+        /// <summary>
+        /// 将文本分割成句子
+        /// </summary>
+        private List<string> SplitIntoSentences(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return new List<string>();
+            
+            // 使用正则表达式分割句子
+            var sentences = System.Text.RegularExpressions.Regex.Split(text, @"[。！？!?]\s*")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
+            
+            return sentences;
+        }
+
+        #endregion
+    }
+
+    // 简单的配置类
+    public class SimplePolishingConfig
+    {
+        public bool EnablePolishing { get; set; } = false;
+        public string ApiKey { get; set; } = string.Empty;
+        public string SelectedModel { get; set; } = "deepseek-chat";
+        public string SelectedTemplateName { get; set; } = "通用润色";
+        public string ApiBaseUrl { get; set; } = "https://api.deepseek.com/v1";
+        public int MaxTokens { get; set; } = 4000;
+        public double Temperature { get; set; } = 0.7;
     }
 
     // 本地ApiResponse类定义用于反序列化
