@@ -41,6 +41,25 @@ namespace OWhisper.Core.Services
         /// <returns>音频分段列表，如果不启用VAD则返回包含原始音频的单个分段</returns>
         public static List<AudioSegment> ProcessAudioWithVad(byte[] audioData, bool enableVad = true, VadSettings vadSettings = null)
         {
+            // 优先使用 Silero VAD
+            try
+            {
+                return SileroVadAudioProcessor.ProcessAudioWithSileroVad(audioData, enableVad, vadSettings);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Silero VAD 失败，回退到原始VAD实现");
+                
+                // 回退到原始VAD实现
+                return ProcessAudioWithLegacyVad(audioData, enableVad, vadSettings);
+            }
+        }
+
+        /// <summary>
+        /// 使用原始VAD对音频进行分段处理（备用方案）
+        /// </summary>
+        private static List<AudioSegment> ProcessAudioWithLegacyVad(byte[] audioData, bool enableVad = true, VadSettings vadSettings = null)
+        {
             if (audioData == null || audioData.Length == 0)
             {
                 throw new ArgumentException("音频数据不能为空");
@@ -51,7 +70,7 @@ namespace OWhisper.Core.Services
             if (!enableVad)
             {
                 // 不使用VAD，返回完整音频作为单个分段
-                Log.Information("VAD未启用，返回完整音频作为单个分段");
+                Log.Information("原始VAD未启用，返回完整音频作为单个分段");
                 
                 TimeSpan totalDuration;
                 try
@@ -96,7 +115,7 @@ namespace OWhisper.Core.Services
                     }
                     
                     vadSettings = VoiceActivityDetector.GetRecommendedSettings(duration.TotalSeconds);
-                    Log.Information("使用推荐VAD设置 - 音频时长: {Duration}秒, 最大分段: {MaxSegment}秒", 
+                    Log.Information("使用推荐原始VAD设置 - 音频时长: {Duration}秒, 最大分段: {MaxSegment}秒", 
                         duration.TotalSeconds, vadSettings.MaxSegmentDuration);
                 }
 
@@ -108,20 +127,20 @@ namespace OWhisper.Core.Services
                 if (vadSettings.RemoveSilentSegments)
                 {
                     var speechSegments = segments.Where(s => s.HasSpeech).ToList();
-                    Log.Information("VAD分段完成 - 总分段: {Total}, 语音分段: {Speech}, 静音分段: {Silent}", 
+                    Log.Information("原始VAD分段完成 - 总分段: {Total}, 语音分段: {Speech}, 静音分段: {Silent}", 
                         segments.Count, speechSegments.Count, segments.Count - speechSegments.Count);
                     return speechSegments;
                 }
 
-                Log.Information("VAD分段完成 - 共 {Count} 个分段", segments.Count);
+                Log.Information("原始VAD分段完成 - 共 {Count} 个分段", segments.Count);
                 return segments;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "VAD处理失败，回退到不使用VAD");
+                Log.Error(ex, "原始VAD处理失败，回退到不使用VAD");
                 
                 // VAD失败时回退到原始处理方式
-                return ProcessAudioWithVad(audioData, false, null);
+                return ProcessAudioWithLegacyVad(audioData, false, null);
             }
         }
 
