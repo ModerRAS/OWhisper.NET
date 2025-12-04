@@ -192,7 +192,6 @@ namespace IntegrationTests {
 
             Assert.That(progressReceived, Is.True, "未收到任何进度更新");
         }
-
         [Test, Ignore("API服务处理无效音频文件时间过长，此测试用于边界情况验证，不影响核心功能")]
         public async Task Transcribe_ShouldFailWithInvalidAudio() {
             using var form = new MultipartFormDataContent();
