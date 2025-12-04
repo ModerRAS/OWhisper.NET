@@ -219,7 +219,40 @@ GET /api/model/status
 }
 ```
 
-#### 提交转录任务
+#### OpenAI兼容格式转录（同步）
+```http
+POST /audio/transcriptions
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+
+file: [音频文件]
+model: whisper-1
+```
+
+**支持的模型:**
+- `whisper-1` (默认)
+
+**支持的音频格式:** mp3, mp4, mpeg, mpga, m4a, wav, webm, aac
+
+**响应示例:**
+```json
+{
+  "text": "转录的文本内容"
+}
+```
+
+**错误响应示例:**
+```json
+{
+  "error": {
+    "message": "错误信息",
+    "type": "invalid_request_error",
+    "param": "file"
+  }
+}
+```
+
+#### 提交转录任务（异步）
 ```http
 POST /api/transcribe
 Content-Type: multipart/form-data

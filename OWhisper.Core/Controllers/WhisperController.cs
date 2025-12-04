@@ -36,7 +36,8 @@ namespace OWhisper.Core.Controllers
                     "/api/tasks/{taskId}",
                     "/api/tasks/{taskId}/cancel",
                     "/api/tasks/{taskId}/progress",
-                    "/api/queue/progress"
+                    "/api/queue/progress",
+                    "/audio/transcriptions"
                 },
                 service = "OWhisper.NET API"
             });
@@ -283,6 +284,104 @@ namespace OWhisper.Core.Controllers
                 HttpContext.Response.StatusCode = 500;
                 Log.Error(ex, "取消任务失败: {TaskId}", taskId);
                 return ApiResponse<object>.CreateError("INTERNAL_ERROR", "内部服务器错误");
+            }
+        }
+
+        /// <summary>
+        /// OpenAI兼容格式的音频转录接口
+        /// Creates an audio transcription (OpenAI API compatible)
+        /// POST /audio/transcriptions
+        /// </summary>
+        [Route(HttpVerbs.Post, "/audio/transcriptions")]
+        public async Task<object> CreateTranscription()
+        {
+            try
+            {
+                // 解析multipart/form-data请求
+                if (HttpContext.Request.InputStream == null)
+                {
+                    Log.Error("请求输入流为空");
+                    HttpContext.Response.StatusCode = 400;
+                    return new { error = new { message = "无效的请求格式", type = "invalid_request_error" } };
+                }
+
+                var parser = await MultipartFormDataParser.ParseAsync(HttpContext.Request.InputStream);
+                var filePart = parser.Files.FirstOrDefault();
+
+                if (filePart == null)
+                {
+                    Log.Error("请求中未包含文件");
+                    HttpContext.Response.StatusCode = 400;
+                    return new { error = new { message = "请上传音频文件", type = "invalid_request_error", param = "file" } };
+                }
+
+                // 获取model参数（必需）
+                var modelParam = parser.Parameters.FirstOrDefault(p => p.Name == "model");
+                string model = modelParam?.Data ?? "whisper-1";
+                Log.Information("使用模型: {Model}", model);
+
+                // 验证文件格式
+                var fileName = filePart.FileName?.ToLower() ?? string.Empty;
+                // 支持更多格式：mp3, mp4, mpeg, mpga, m4a, wav, webm
+                var supportedFormats = new[] { ".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm", ".aac" };
+                var fileExtension = Path.GetExtension(fileName);
+                
+                if (!supportedFormats.Contains(fileExtension))
+                {
+                    Log.Error("不支持的文件格式: {FileName}", fileName);
+                    HttpContext.Response.StatusCode = 400;
+                    return new { error = new { message = "不支持的文件格式，支持的格式: mp3, mp4, mpeg, mpga, m4a, wav, webm, aac", type = "invalid_request_error", param = "file" } };
+                }
+
+                // 读取文件数据
+                byte[] audioData;
+                using (var memoryStream = new MemoryStream())
+                {
+                    await filePart.Data.CopyToAsync(memoryStream);
+                    audioData = memoryStream.ToArray();
+                }
+
+                // 验证音频数据
+                if (audioData.Length == 0)
+                {
+                    Log.Error("无效的音频数据: 零长度");
+                    HttpContext.Response.StatusCode = 400;
+                    return new { error = new { message = "音频数据不能为空", type = "invalid_request_error", param = "file" } };
+                }
+
+                Log.Information("OpenAI格式转录请求: 文件={FileName}, 长度={Length}字节, 模型={Model}", 
+                    fileName, audioData.Length, model);
+
+                // 处理音频数据(采样率转换等)
+                audioData = AudioProcessor.ProcessAudio(audioData, fileName);
+
+                // 使用WhisperService同步执行转录
+                var whisperService = WhisperService.Instance;
+                var result = await whisperService.Transcribe(audioData, true, null);
+
+                if (!result.Success)
+                {
+                    Log.Error("转录失败: {Error}", result.Error);
+                    HttpContext.Response.StatusCode = 500;
+                    return new { error = new { message = result.Error ?? "转录失败", type = "api_error" } };
+                }
+
+                Log.Information("OpenAI格式转录完成: 文本长度={Length}", result.Text?.Length ?? 0);
+
+                // 返回OpenAI格式的响应
+                return new { text = result.Text ?? string.Empty };
+            }
+            catch (AudioProcessingException ex)
+            {
+                HttpContext.Response.StatusCode = 400;
+                Log.Error(ex, "音频处理错误: {ErrorCode} - {Message}", ex.ErrorCode, ex.Message);
+                return new { error = new { message = ex.Message, type = "invalid_request_error", code = ex.ErrorCode } };
+            }
+            catch (Exception ex)
+            {
+                HttpContext.Response.StatusCode = 500;
+                Log.Error(ex, "OpenAI格式转录失败");
+                return new { error = new { message = "内部服务器错误", type = "api_error" } };
             }
         }
     }
